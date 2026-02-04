@@ -1,12 +1,4 @@
-import { redirect } from 'next/navigation'
-
-export default async function QuestionnairePage(props: { searchParams: Promise<{ userId?: string }> }) {
-    const searchParams = await props.searchParams
-
-    if (!searchParams.userId) {
-        redirect('/profile')
-    }
-
+export default function QuestionnairePage() {
     return (
         <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
             <div className="max-w-2xl bg-white p-10 rounded-2xl shadow-xl border border-blue-100">
@@ -16,7 +8,7 @@ export default async function QuestionnairePage(props: { searchParams: Promise<{
                 <h1 className="text-3xl font-bold text-slate-800 mb-4">You are ready!</h1>
                 <p className="text-slate-600 mb-8">
                     This is a placeholder for the questionnaire content.<br />
-                    Your profile has been created with ID: <span className="font-mono text-sm bg-slate-100 p-1 rounded text-slate-700">{searchParams.userId}</span>
+                    Your profile has been submitted successfully.
                 </p>
                 <div className="p-6 bg-yellow-50 text-yellow-800 rounded-lg border border-yellow-200">
                     <strong>System Status:</strong> The questionnaire module is currently under development.

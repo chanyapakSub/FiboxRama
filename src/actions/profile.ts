@@ -1,7 +1,6 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { getDb } from '@/lib/db'
 
 export async function submitProfile(formData: FormData) {
     const role = formData.get('role') as string
@@ -15,16 +14,9 @@ export async function submitProfile(formData: FormData) {
 
     const experienceYears = parseInt(experienceString, 10)
 
-    const prisma = await getDb()
+    // TODO: Save to database later
+    console.log('Profile submitted:', { role, department, experienceYears })
 
-    const user = await prisma.userProfile.create({
-        data: {
-            role,
-            department,
-            experienceYears
-        }
-    })
-
-    // Redirect to questionnaire with userId
-    redirect(`/questionnaire?userId=${user.id}`)
+    // Redirect to questionnaire
+    redirect('/questionnaire')
 }
