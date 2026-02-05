@@ -14,7 +14,7 @@
   "dependencies": {
     "@prisma/adapter-d1": "^5.22.0",
     "@prisma/client": "^5.22.0",
-    "next": "^14.5.0",
+    "next": "15.5.2",
     "react": "^18",
     "react-dom": "^18"
   },
@@ -26,7 +26,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^9",
-    "eslint-config-next": "^14.5.0",
+    "eslint-config-next": "15.5.2",
     "prisma": "^5.22.0",
     "tailwindcss": "^4",
     "typescript": "^5",
