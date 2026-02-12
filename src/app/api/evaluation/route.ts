@@ -2,6 +2,11 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
+// Use Node.js runtime for local development (SQLite)
+// Will be overridden to 'edge' in production via environment config
+// export const runtime = 'edge';
+
+// For local development, use standard PrismaClient
 const prisma = new PrismaClient();
 
 // GET: Retrieve all evaluations (for the Dashboard)

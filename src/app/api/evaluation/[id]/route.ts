@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
+// Use Node.js runtime for local development
+// export const runtime = 'edge';
+
 const prisma = new PrismaClient();
 
 // DELETE: Delete a specific evaluator and all their evaluations
