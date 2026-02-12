@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { PrismaD1 } from '@prisma/adapter-d1';
+import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
 // DELETE: Delete a specific evaluator and all their evaluations
 export async function DELETE(
     request: Request,
-    { params }: { params: Promise<{ id: string }> },
-    context?: any
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const DB = context?.env?.DB || (globalThis as any).DB;
+        const { env } = getRequestContext();
+        const DB = env.DB;
+
         let prisma: PrismaClient;
         if (DB) {
             const adapter = new PrismaD1(DB);
@@ -36,11 +38,11 @@ export async function DELETE(
 // PUT: Update evaluator data
 export async function PUT(
     request: Request,
-    { params }: { params: Promise<{ id: string }> },
-    context?: any
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const DB = context?.env?.DB || (globalThis as any).DB;
+        const { env } = getRequestContext();
+        const DB = env.DB;
         let prisma: PrismaClient;
         if (DB) {
             const adapter = new PrismaD1(DB);

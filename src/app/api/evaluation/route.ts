@@ -2,16 +2,18 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { PrismaD1 } from '@prisma/adapter-d1';
+import { getRequestContext } from '@cloudflare/next-on-pages';
 
 // Enable Edge Runtime for Cloudflare Pages
 export const runtime = 'edge';
 
 // GET: Retrieve all evaluations (for the Dashboard)
 // This should ideally be protected, but for this simple app we'll rely on the frontend password gate for viewing.
-export async function GET(request: Request, context?: any) {
+export async function GET() {
     try {
         // Access D1 from Cloudflare context
-        const DB = context?.env?.DB || (globalThis as any).DB;
+        const { env } = getRequestContext();
+        const DB = env.DB;
 
         let prisma: PrismaClient;
         if (DB) {
@@ -41,10 +43,11 @@ export async function GET(request: Request, context?: any) {
 }
 
 // POST: Handle Registration, Login, and Saving Progress
-export async function POST(request: Request, context?: any) {
+export async function POST(request: Request) {
     try {
         // Access D1 from Cloudflare context
-        const DB = context?.env?.DB || (globalThis as any).DB;
+        const { env } = getRequestContext();
+        const DB = env.DB;
 
         let prisma: PrismaClient;
         if (DB) {
