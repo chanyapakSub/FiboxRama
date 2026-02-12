@@ -8,10 +8,41 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model UserProfile {
-  id              String   @id @default(uuid())
+// Evaluator (The person doing the grading)
+model Evaluator {
+  id              String       @id @default(uuid())
+  username        String       @unique
+  password        String
+  name            String
   role            String
-  department      String
+  specialty       String?
   experienceYears Int
-  createdAt       DateTime @default(now())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt  @default(now())
+  evaluations     Evaluation[]
+}
+
+// Evaluation (A review of a specific conversation)
+model Evaluation {
+  id             String    @id @default(uuid())
+  evaluatorId    String
+  evaluator      Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
+  conversationId Int
+  comment        String?
+  scores         Score[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([evaluatorId, conversationId]) // One evaluation per conversation per evaluator
+}
+
+// Score (Individual score for each indicator)
+model Score {
+  id           String     @id @default(uuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  indicatorKey String
+  score        Int
+
+  @@unique([evaluationId, indicatorKey])
 }
