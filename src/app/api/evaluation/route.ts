@@ -6,27 +6,21 @@ import { PrismaD1 } from '@prisma/adapter-d1';
 // Enable Edge Runtime for Cloudflare Pages
 export const runtime = 'edge';
 
-// Initialize Prisma Client based on environment
-function getPrismaClient() {
-    // @ts-ignore - Cloudflare D1 binding
-    const DB = process.env.DB || (globalThis as any).DB;
-
-    if (DB) {
-        // Production: Use D1 adapter
-        const adapter = new PrismaD1(DB);
-        return new PrismaClient({ adapter });
-    } else {
-        // Local development: Use standard SQLite
-        // Note: This won't work in Edge Runtime, but Cloudflare will have DB binding
-        return new PrismaClient();
-    }
-}
-
 // GET: Retrieve all evaluations (for the Dashboard)
 // This should ideally be protected, but for this simple app we'll rely on the frontend password gate for viewing.
-export async function GET() {
+export async function GET(request: Request, context?: any) {
     try {
-        const prisma = getPrismaClient();
+        // Access D1 from Cloudflare context
+        const DB = context?.env?.DB || (globalThis as any).DB;
+
+        let prisma: PrismaClient;
+        if (DB) {
+            const adapter = new PrismaD1(DB);
+            prisma = new PrismaClient({ adapter });
+        } else {
+            prisma = new PrismaClient();
+        }
+
         const evaluators = await prisma.evaluator.findMany({
             include: {
                 evaluations: {
@@ -47,9 +41,19 @@ export async function GET() {
 }
 
 // POST: Handle Registration, Login, and Saving Progress
-export async function POST(request: Request) {
+export async function POST(request: Request, context?: any) {
     try {
-        const prisma = getPrismaClient();
+        // Access D1 from Cloudflare context
+        const DB = context?.env?.DB || (globalThis as any).DB;
+
+        let prisma: PrismaClient;
+        if (DB) {
+            const adapter = new PrismaD1(DB);
+            prisma = new PrismaClient({ adapter });
+        } else {
+            prisma = new PrismaClient();
+        }
+
         const data = await request.json();
         const { action, username, password, profile, conversations } = data;
 

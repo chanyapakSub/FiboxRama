@@ -4,25 +4,22 @@ import { PrismaD1 } from '@prisma/adapter-d1';
 
 export const runtime = 'edge';
 
-function getPrismaClient() {
-    // @ts-ignore - Cloudflare D1 binding
-    const DB = process.env.DB || (globalThis as any).DB;
-
-    if (DB) {
-        const adapter = new PrismaD1(DB);
-        return new PrismaClient({ adapter });
-    } else {
-        return new PrismaClient();
-    }
-}
-
 // DELETE: Delete a specific evaluator and all their evaluations
 export async function DELETE(
     request: Request,
-    { params }: { params: Promise<{ id: string }> }
+    { params }: { params: Promise<{ id: string }> },
+    context?: any
 ) {
     try {
-        const prisma = getPrismaClient();
+        const DB = context?.env?.DB || (globalThis as any).DB;
+        let prisma: PrismaClient;
+        if (DB) {
+            const adapter = new PrismaD1(DB);
+            prisma = new PrismaClient({ adapter });
+        } else {
+            prisma = new PrismaClient();
+        }
+
         const { id } = await params;
 
         await prisma.evaluator.delete({
@@ -39,10 +36,19 @@ export async function DELETE(
 // PUT: Update evaluator data
 export async function PUT(
     request: Request,
-    { params }: { params: Promise<{ id: string }> }
+    { params }: { params: Promise<{ id: string }> },
+    context?: any
 ) {
     try {
-        const prisma = getPrismaClient();
+        const DB = context?.env?.DB || (globalThis as any).DB;
+        let prisma: PrismaClient;
+        if (DB) {
+            const adapter = new PrismaD1(DB);
+            prisma = new PrismaClient({ adapter });
+        } else {
+            prisma = new PrismaClient();
+        }
+
         const { id } = await params;
         const data = await request.json();
         const { profile, conversations } = data;
