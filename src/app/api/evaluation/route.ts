@@ -1,18 +1,32 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { PrismaD1 } from '@prisma/adapter-d1';
 
-// Use Node.js runtime for local development (SQLite)
-// Will be overridden to 'edge' in production via environment config
-// export const runtime = 'edge';
+// Enable Edge Runtime for Cloudflare Pages
+export const runtime = 'edge';
 
-// For local development, use standard PrismaClient
-const prisma = new PrismaClient();
+// Initialize Prisma Client based on environment
+function getPrismaClient() {
+    // @ts-ignore - Cloudflare D1 binding
+    const DB = process.env.DB || (globalThis as any).DB;
+
+    if (DB) {
+        // Production: Use D1 adapter
+        const adapter = new PrismaD1(DB);
+        return new PrismaClient({ adapter });
+    } else {
+        // Local development: Use standard SQLite
+        // Note: This won't work in Edge Runtime, but Cloudflare will have DB binding
+        return new PrismaClient();
+    }
+}
 
 // GET: Retrieve all evaluations (for the Dashboard)
 // This should ideally be protected, but for this simple app we'll rely on the frontend password gate for viewing.
 export async function GET() {
     try {
+        const prisma = getPrismaClient();
         const evaluators = await prisma.evaluator.findMany({
             include: {
                 evaluations: {
@@ -35,6 +49,7 @@ export async function GET() {
 // POST: Handle Registration, Login, and Saving Progress
 export async function POST(request: Request) {
     try {
+        const prisma = getPrismaClient();
         const data = await request.json();
         const { action, username, password, profile, conversations } = data;
 

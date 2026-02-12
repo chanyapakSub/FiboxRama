@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { PrismaD1 } from '@prisma/adapter-d1';
 
-// Use Node.js runtime for local development
-// export const runtime = 'edge';
+export const runtime = 'edge';
 
-const prisma = new PrismaClient();
+function getPrismaClient() {
+    // @ts-ignore - Cloudflare D1 binding
+    const DB = process.env.DB || (globalThis as any).DB;
+
+    if (DB) {
+        const adapter = new PrismaD1(DB);
+        return new PrismaClient({ adapter });
+    } else {
+        return new PrismaClient();
+    }
+}
 
 // DELETE: Delete a specific evaluator and all their evaluations
 export async function DELETE(
@@ -12,6 +22,7 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const prisma = getPrismaClient();
         const { id } = await params;
 
         await prisma.evaluator.delete({
@@ -31,6 +42,7 @@ export async function PUT(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const prisma = getPrismaClient();
         const { id } = await params;
         const data = await request.json();
         const { profile, conversations } = data;
