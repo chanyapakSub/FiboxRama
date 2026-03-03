@@ -71,7 +71,7 @@ export async function POST(request: Request) {
             // Create user WITHOUT nested includes to avoid implicit transaction
             evaluator = await prisma.evaluator.create({
                 data: {
-                    username: username,
+                    username: username || profile.username,
                     password: password,
                     name: profile.name,
                     role: profile.role,
