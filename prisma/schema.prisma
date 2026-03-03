@@ -17,10 +17,8 @@ model Evaluator {
   role            String
   specialty       String?
   experienceYears Int
-
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
+  createdAt       DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(6)
   evaluations     Evaluation[]
 }
 
@@ -29,10 +27,8 @@ model Evaluation {
   evaluatorId    String
   conversationId Int
   comment        String?
-
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-
   evaluator      Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
   scores         Score[]
 
@@ -44,10 +40,8 @@ model Score {
   evaluationId String
   indicatorKey String
   score        Int
-
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
-
   evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
 
   @@unique([evaluationId, indicatorKey])
