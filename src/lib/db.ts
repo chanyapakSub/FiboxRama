@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless'
 import { PrismaNeonHTTP } from '@prisma/adapter-neon'
-import { PrismaClient } from '@prisma/client/edge'
+import { PrismaClient } from '@prisma/client'
 
 export const runtime = 'edge'
 
