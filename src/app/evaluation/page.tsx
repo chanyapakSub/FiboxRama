@@ -47,15 +47,22 @@ export default function EvaluationPage() {
 
         // Load Scores
         const saved = localStorage.getItem("medical_evaluation_scores");
+        const initial: ConversationScore[] = Array.from({ length: 50 }, (_, i) => ({
+            conversation_id: i + 1,
+            scores: {},
+            comment: "",
+            indicator_comments: {},
+        }));
+
         if (saved) {
-            setConversations(JSON.parse(saved));
+            const savedData = JSON.parse(saved);
+            // Merge saved data into initial 50 items
+            const merged = initial.map(item => {
+                const found = savedData.find((s: any) => s.conversation_id === item.conversation_id);
+                return found ? { ...item, ...found } : item;
+            });
+            setConversations(merged);
         } else {
-            const initial: ConversationScore[] = Array.from({ length: 50 }, (_, i) => ({
-                conversation_id: i + 1,
-                scores: {},
-                comment: "",
-                indicator_comments: {},
-            }));
             setConversations(initial);
         }
         setHydrated(true);
