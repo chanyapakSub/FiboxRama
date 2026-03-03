@@ -9,7 +9,6 @@ interface Evaluator {
     role: string;
     specialty: string | null;
     experienceYears: number;
-    createdAt: string;
     evaluations: Evaluation[];
 }
 
@@ -304,10 +303,6 @@ export default function DashboardPage() {
                                             <div className="text-right">
                                                 <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Progress</p>
                                                 <p className="text-xl font-bold text-slate-700">{totalScored} <span className="text-sm text-slate-400 font-normal">/ 50 Sets</span></p>
-                                            </div>
-                                            <div className="text-right hidden lg:block">
-                                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Submitted</p>
-                                                <p className="text-sm text-slate-600">{new Date(evaluator.createdAt).toLocaleDateString()}</p>
                                             </div>
                                             <button
                                                 onClick={(e) => {
