@@ -10,10 +10,9 @@ export function getPrisma(): PrismaClient {
     throw new Error('DATABASE_URL environment variable is not set');
   }
 
-  // Neon HTTP fetch requires the URL to be properly formatted without pooled params for some Edge limits.
-  // Clean connection url to avoid unsupported HTTP query parameter like `sslmode` causing bugs on Edge HTTP Adapters.
-  const cleanedUrl = databaseUrl.split("?")[0];
-  const sql = neon(cleanedUrl);
+  // Neon HTTP uses standard fetch underneath. 
+  // Need the full connection string including pgBouncer configs.
+  const sql = neon(databaseUrl);
   const adapter = new PrismaNeonHTTP(sql);
 
   return new PrismaClient({ adapter });
