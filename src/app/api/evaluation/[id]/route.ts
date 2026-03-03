@@ -3,7 +3,7 @@ import { getPrisma } from '@/lib/db';
 
 export const runtime = 'edge';
 
-// DELETE: Delete a specific evaluator and all their evaluations
+// DELETE: Delete a specific evaluator
 export async function DELETE(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -12,14 +12,18 @@ export async function DELETE(
         const prisma = getPrisma();
         const { id } = await params;
 
-        await prisma.evaluator.delete({
-            where: { id },
-        });
+        // Delete scores first, then evaluations, then evaluator (cascade-safe for HTTP mode)
+        const evaluations = await prisma.evaluation.findMany({ where: { evaluatorId: id } });
+        for (const ev of evaluations) {
+            await prisma.score.deleteMany({ where: { evaluationId: ev.id } });
+        }
+        await prisma.evaluation.deleteMany({ where: { evaluatorId: id } });
+        await prisma.evaluator.delete({ where: { id } });
 
         return NextResponse.json({ success: true, message: 'Evaluator deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting evaluator:', error);
-        return NextResponse.json({ error: 'Failed to delete evaluator' }, { status: 500 });
+    } catch (e: any) {
+        console.error('DELETE error:', e?.message);
+        return NextResponse.json({ error: 'Failed to delete evaluator', details: e?.message }, { status: 500 });
     }
 }
 
@@ -40,51 +44,65 @@ export async function PUT(
             data: {
                 name: profile.name,
                 role: profile.role,
-                specialty: profile.specialty,
-                experienceYears: profile.experienceYears,
+                specialty: profile.specialty || null,
+                experienceYears: typeof profile.experienceYears === 'number'
+                    ? profile.experienceYears
+                    : parseInt(String(profile.experienceYears || '0'), 10) || 0,
             },
         });
 
-        // Update evaluations if provided
+        // Update evaluations — split queries, no nested transactions
         if (conversations && Array.isArray(conversations)) {
             for (const conv of conversations) {
-                if (Object.keys(conv.scores).length > 0 || conv.comment) {
-                    await prisma.evaluation.upsert({
-                        where: {
-                            evaluatorId_conversationId: {
-                                evaluatorId: id,
-                                conversationId: conv.conversation_id,
-                            }
-                        },
-                        update: {
-                            comment: conv.comment,
-                            scores: {
-                                deleteMany: {},
-                                create: Object.entries(conv.scores).map(([key, score]) => ({
-                                    indicatorKey: key,
-                                    score: Number(score),
-                                })),
-                            }
-                        },
-                        create: {
+                const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
+                if (!hasScores && !conv.comment) continue;
+
+                const existingEval = await prisma.evaluation.findUnique({
+                    where: {
+                        evaluatorId_conversationId: {
                             evaluatorId: id,
                             conversationId: conv.conversation_id,
-                            comment: conv.comment,
-                            scores: {
-                                create: Object.entries(conv.scores).map(([key, score]) => ({
-                                    indicatorKey: key,
-                                    score: Number(score),
-                                })),
-                            },
-                        }
+                        },
+                    },
+                });
+
+                let evalId: string;
+
+                if (existingEval) {
+                    await prisma.evaluation.update({
+                        where: { id: existingEval.id },
+                        data: { comment: conv.comment },
                     });
+                    await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
+                    evalId = existingEval.id;
+                } else {
+                    const newEval = await prisma.evaluation.create({
+                        data: {
+                            evaluatorId: id,
+                            conversationId: conv.conversation_id,
+                            comment: conv.comment || null,
+                        },
+                    });
+                    evalId = newEval.id;
+                }
+
+                if (hasScores) {
+                    for (const [key, score] of Object.entries(conv.scores)) {
+                        await prisma.score.create({
+                            data: {
+                                evaluationId: evalId,
+                                indicatorKey: key,
+                                score: Number(score),
+                            },
+                        });
+                    }
                 }
             }
         }
 
         return NextResponse.json({ success: true, message: 'Evaluator updated successfully' });
-    } catch (error) {
-        console.error('Error updating evaluator:', error);
-        return NextResponse.json({ error: 'Failed to update evaluator' }, { status: 500 });
+    } catch (e: any) {
+        console.error('PUT error:', e?.message);
+        return NextResponse.json({ error: 'Failed to update evaluator', details: e?.message }, { status: 500 });
     }
 }
