@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import { PrismaD1 } from '@prisma/adapter-d1';
-import { getRequestContext } from '@cloudflare/next-on-pages';
+import { getPrisma } from '@/lib/db';
 
 export const runtime = 'edge';
 
@@ -11,17 +9,7 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { env } = getRequestContext();
-        const DB = env.DB;
-
-        let prisma: PrismaClient;
-        if (DB) {
-            const adapter = new PrismaD1(DB);
-            prisma = new PrismaClient({ adapter });
-        } else {
-            prisma = new PrismaClient();
-        }
-
+        const prisma = getPrisma();
         const { id } = await params;
 
         await prisma.evaluator.delete({
@@ -41,16 +29,7 @@ export async function PUT(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { env } = getRequestContext();
-        const DB = env.DB;
-        let prisma: PrismaClient;
-        if (DB) {
-            const adapter = new PrismaD1(DB);
-            prisma = new PrismaClient({ adapter });
-        } else {
-            prisma = new PrismaClient();
-        }
-
+        const prisma = getPrisma();
         const { id } = await params;
         const data = await request.json();
         const { profile, conversations } = data;

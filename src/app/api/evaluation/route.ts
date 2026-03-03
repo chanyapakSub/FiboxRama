@@ -1,27 +1,13 @@
-
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import { PrismaD1 } from '@prisma/adapter-d1';
-import { getRequestContext } from '@cloudflare/next-on-pages';
+import { getPrisma } from '@/lib/db';
 
 // Enable Edge Runtime for Cloudflare Pages
 export const runtime = 'edge';
 
 // GET: Retrieve all evaluations (for the Dashboard)
-// This should ideally be protected, but for this simple app we'll rely on the frontend password gate for viewing.
 export async function GET() {
     try {
-        // Access D1 from Cloudflare context
-        const { env } = getRequestContext();
-        const DB = env.DB;
-
-        let prisma: PrismaClient;
-        if (DB) {
-            const adapter = new PrismaD1(DB);
-            prisma = new PrismaClient({ adapter });
-        } else {
-            prisma = new PrismaClient();
-        }
+        const prisma = getPrisma();
 
         const evaluators = await prisma.evaluator.findMany({
             include: {
@@ -45,18 +31,7 @@ export async function GET() {
 // POST: Handle Registration, Login, and Saving Progress
 export async function POST(request: Request) {
     try {
-        // Access D1 from Cloudflare context
-        const { env } = getRequestContext();
-        const DB = env.DB;
-
-        let prisma: PrismaClient;
-        if (DB) {
-            const adapter = new PrismaD1(DB);
-            prisma = new PrismaClient({ adapter });
-        } else {
-            prisma = new PrismaClient();
-        }
-
+        const prisma = getPrisma();
         const data = await request.json();
         const { action, username, password, profile, conversations } = data;
 
@@ -111,18 +86,15 @@ export async function POST(request: Request) {
                     specialty: profile.specialty,
                     experienceYears: profile.experienceYears || 0,
                 },
-                include: { evaluations: { include: { scores: true } } } // technically empty
+                include: { evaluations: { include: { scores: true } } }
             });
         }
 
         // 2. SAVE PROGRESS (for both existing and new users)
         if (conversations && Array.isArray(conversations)) {
             for (const conv of conversations) {
-                // We always upsert evaluations to handle updates ("save progress")
-                if (Object.keys(conv.scores).length > 0 || conv.comment) { // Save even if just comment or partial scores
-
-                    // Upsert Evaluation
-                    const evaluation = await prisma.evaluation.upsert({
+                if (Object.keys(conv.scores).length > 0 || conv.comment) {
+                    await prisma.evaluation.upsert({
                         where: {
                             evaluatorId_conversationId: {
                                 evaluatorId: evaluator.id,
@@ -131,8 +103,6 @@ export async function POST(request: Request) {
                         },
                         update: {
                             comment: conv.comment,
-                            // We need to manage scores carefully. Simplest is to delete old scores and re-create all current ones for this conversation.
-                            // OR use individual upserts for scores. Let's delete-create for simplicity on a per-conversation basis.
                             scores: {
                                 deleteMany: {},
                                 create: Object.entries(conv.scores).map(([key, score]) => ({
