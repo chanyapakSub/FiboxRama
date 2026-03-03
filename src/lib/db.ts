@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { PrismaNeon } from '@prisma/adapter-neon';
+import { PrismaNeonHTTP } from '@prisma/adapter-neon';
 import { PrismaClient } from '@prisma/client';
 
 export const runtime = 'edge';
@@ -9,7 +9,8 @@ export function getPrisma(): PrismaClient {
   if (!databaseUrl) {
     throw new Error('DATABASE_URL environment variable is not set');
   }
+  // Use HTTP adapter (not WebSocket) — required for Cloudflare Edge Runtime
   const sql = neon(databaseUrl);
-  const adapter = new PrismaNeon(sql);
+  const adapter = new PrismaNeonHTTP(sql);
   return new PrismaClient({ adapter });
 }
