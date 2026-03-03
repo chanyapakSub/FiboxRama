@@ -77,14 +77,19 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Profile data required for new user' }, { status: 400 });
             }
 
+            // Parse specifically to avoid validation mismatch with Prisma Edge
+            const expYears = typeof profile.experienceYears === 'number'
+                ? profile.experienceYears
+                : parseInt(profile.experienceYears || '0', 10) || 0;
+
             evaluator = await prisma.evaluator.create({
                 data: {
-                    username,
-                    password,
+                    username: username || profile.username, // Fallback if username is in profile inside payload
+                    password: password,
                     name: profile.name,
                     role: profile.role,
                     specialty: profile.specialty,
-                    experienceYears: profile.experienceYears || 0,
+                    experienceYears: expYears,
                 },
                 include: { evaluations: { include: { scores: true } } }
             });
@@ -129,8 +134,16 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, evaluatorId: evaluator.id, message: 'Progress saved successfully' });
 
-    } catch (error) {
-        console.error('Error in evaluation API:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    } catch (e: any) {
+        // Log direct and plain string to check if the error object is circular causing JSON format to fail
+        console.error('EVALUATION_API_ERROR_OBJECT', e?.name, e?.message, e?.stack);
+        return NextResponse.json(
+            {
+                error: 'Internal server error',
+                type: e?.name || "Unknown Error",
+                details: e?.message || "No error details available"
+            },
+            { status: 500 }
+        );
     }
 }
