@@ -9,7 +9,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// Evaluator (The person doing the grading)
 model Evaluator {
   id              String       @id @default(uuid())
   username        String       @unique
@@ -19,31 +18,29 @@ model Evaluator {
   specialty       String?
   experienceYears Int
   createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt  @default(now())
+  updatedAt       DateTime     @default(now()) @updatedAt
   evaluations     Evaluation[]
 }
 
-// Evaluation (A review of a specific conversation)
 model Evaluation {
   id             String    @id @default(uuid())
   evaluatorId    String
-  evaluator      Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
   conversationId Int
   comment        String?
-  scores         Score[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  evaluator      Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
+  scores         Score[]
 
-  @@unique([evaluatorId, conversationId]) // One evaluation per conversation per evaluator
+  @@unique([evaluatorId, conversationId])
 }
 
-// Score (Individual score for each indicator)
 model Score {
   id           String     @id @default(uuid())
   evaluationId String
-  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
   indicatorKey String
   score        Int
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
 
   @@unique([evaluationId, indicatorKey])
 }
