@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getPrisma } from '@/lib/db';
 
 export const runtime = 'edge';
-
+console.log("DATABASE_URL:", process.env.DATABASE_URL)
 // GET: Retrieve all evaluations (for the Dashboard)
 export async function GET() {
     try {
