@@ -288,7 +288,7 @@ export default function DashboardPage() {
                                         onClick={() => setExpandedEvaluator(isExpanded ? null : evaluator.id)}
                                     >
                                         <div className="flex items-center gap-4 mb-3 lg:mb-0">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${evaluator.role === 'Doctor' ? 'bg-blue-600' : 'bg-emerald-500'}`}>
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${evaluator.role === 'Doctor' ? 'bg-blue-600' : evaluator.role === 'Nurse' ? 'bg-emerald-500' : 'bg-purple-500'}`}>
                                                 {evaluator.role[0]}
                                             </div>
                                             <div>
