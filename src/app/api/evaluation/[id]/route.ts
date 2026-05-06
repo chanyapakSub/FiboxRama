@@ -1,24 +1,27 @@
 import { NextResponse } from 'next/server';
-import { getPrisma } from '@/lib/db';
+import { neon } from '@neondatabase/serverless';
 
 export const runtime = 'edge';
 
-// DELETE: Delete a specific evaluator
+function getSql() {
+    return neon(process.env.DATABASE_URL!);
+}
+
+// DELETE: Delete a specific evaluator (cascade via raw SQL)
 export async function DELETE(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const prisma = getPrisma();
+        const sql = getSql();
         const { id } = await params;
 
-        // Delete scores first, then evaluations, then evaluator (cascade-safe for HTTP mode)
-        const evaluations = await prisma.evaluation.findMany({ where: { evaluatorId: id } });
-        for (const ev of evaluations) {
-            await prisma.score.deleteMany({ where: { evaluationId: ev.id } });
-        }
-        await prisma.evaluation.deleteMany({ where: { evaluatorId: id } });
-        await prisma.evaluator.delete({ where: { id } });
+        // Delete scores → evaluations → evaluator in 3 statements, no transactions
+        await sql`DELETE FROM "Score" WHERE "evaluationId" IN (
+            SELECT id FROM "Evaluation" WHERE "evaluatorId" = ${id}::uuid
+        )`;
+        await sql`DELETE FROM "Evaluation" WHERE "evaluatorId" = ${id}::uuid`;
+        await sql`DELETE FROM "Evaluator" WHERE id = ${id}::uuid`;
 
         return NextResponse.json({ success: true, message: 'Evaluator deleted successfully' });
     } catch (e: any) {
@@ -27,75 +30,89 @@ export async function DELETE(
     }
 }
 
-// PUT: Update evaluator data
+// PUT: Update evaluator profile + conversations
 export async function PUT(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const prisma = getPrisma();
+        const sql = getSql();
         const { id } = await params;
         const data = await request.json();
         const { profile, conversations } = data;
 
-        // Update evaluator profile
-        await prisma.evaluator.update({
-            where: { id },
-            data: {
-                name: profile.name,
-                role: profile.role,
-                specialty: profile.specialty || null,
-                experienceYears: typeof profile.experienceYears === 'number'
-                    ? profile.experienceYears
-                    : parseInt(String(profile.experienceYears || '0'), 10) || 0,
-            },
-        });
+        // --- Update evaluator profile (1 statement) ---
+        const expYears = typeof profile.experienceYears === 'number'
+            ? profile.experienceYears
+            : parseInt(String(profile.experienceYears || '0'), 10) || 0;
 
-        // Update evaluations — split queries, no nested transactions
+        await sql`
+            UPDATE "Evaluator"
+            SET name = ${profile.name},
+                role = ${profile.role},
+                specialty = ${profile.specialty || null},
+                "experienceYears" = ${expYears}
+            WHERE id = ${id}::uuid
+        `;
+
+        // --- Update conversations using raw SQL batch (no transactions) ---
         if (conversations && Array.isArray(conversations)) {
-            for (const conv of conversations) {
+            const filledConvs = conversations.filter((conv: any) => {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
-                if (!hasScores && !conv.comment) continue;
+                const hasComment = conv.comment && conv.comment.trim().length > 0;
+                return hasScores || hasComment;
+            });
 
-                const existingEval = await prisma.evaluation.findUnique({
-                    where: {
-                        evaluatorId_conversationId: {
-                            evaluatorId: id,
-                            conversationId: conv.conversation_id,
-                        },
-                    },
-                });
+            if (filledConvs.length > 0) {
+                // --- Query 1: Upsert all evaluations in ONE statement ---
+                const convIds = filledConvs.map((c: any) => c.conversation_id);
+                const evalComments = filledConvs.map((c: any) => c.comment || null);
 
-                let evalId: string;
+                const evalResults = await sql`
+                    INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment)
+                    SELECT
+                        gen_random_uuid(),
+                        ${id}::uuid,
+                        unnest(${convIds}::int[]),
+                        unnest(${evalComments}::text[])
+                    ON CONFLICT ("evaluatorId", "conversationId")
+                    DO UPDATE SET comment = EXCLUDED.comment
+                    RETURNING id, "conversationId"
+                `;
 
-                if (existingEval) {
-                    await prisma.evaluation.update({
-                        where: { id: existingEval.id },
-                        data: { comment: conv.comment },
-                    });
-                    await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
-                    evalId = existingEval.id;
-                } else {
-                    const newEval = await prisma.evaluation.create({
-                        data: {
-                            evaluatorId: id,
-                            conversationId: conv.conversation_id,
-                            comment: conv.comment || null,
-                        },
-                    });
-                    evalId = newEval.id;
+                const evalIdMap = new Map<number, string>(
+                    evalResults.map((r: any) => [r.conversationId, r.id])
+                );
+                const evalIds = [...evalIdMap.values()];
+
+                // --- Query 2: Delete old scores (1 statement) ---
+                await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds}::uuid[])`;
+
+                // --- Query 3: Batch insert all new scores (1 statement) ---
+                const scoreEvalIds: string[] = [];
+                const scoreKeys: string[] = [];
+                const scoreValues: number[] = [];
+
+                for (const conv of filledConvs) {
+                    const evalId = evalIdMap.get(conv.conversation_id);
+                    if (evalId && conv.scores) {
+                        for (const [key, score] of Object.entries(conv.scores)) {
+                            scoreEvalIds.push(evalId);
+                            scoreKeys.push(key);
+                            scoreValues.push(Number(score));
+                        }
+                    }
                 }
 
-                if (hasScores) {
-                    for (const [key, score] of Object.entries(conv.scores)) {
-                        await prisma.score.create({
-                            data: {
-                                evaluationId: evalId,
-                                indicatorKey: key,
-                                score: Number(score),
-                            },
-                        });
-                    }
+                if (scoreEvalIds.length > 0) {
+                    await sql`
+                        INSERT INTO "Score" (id, "evaluationId", "indicatorKey", score)
+                        SELECT
+                            gen_random_uuid(),
+                            unnest(${scoreEvalIds}::uuid[]),
+                            unnest(${scoreKeys}::text[]),
+                            unnest(${scoreValues}::int[])
+                    `;
                 }
             }
         }
