@@ -37,33 +37,9 @@ export async function POST(request: Request) {
 
         let evaluator = await prisma.evaluator.findUnique({ where: { username } });
 
-        if (!evaluator) {
-            if (action === 'login' || action === 'reset_password') {
-                console.log('Evaluator not found for login or password reset');
-                return NextResponse.json({ error: 'User not found' }, { status: 404 });
-            }
-
-            if (action === 'save' && profile) {
-                const expYears = typeof profile.experienceYears === 'number'
-                    ? profile.experienceYears
-                    : parseInt(String(profile.experienceYears || '0'), 10) || 0;
-
-                evaluator = await prisma.evaluator.create({
-                    data: {
-                        username: username || profile.username,
-                        password: password,
-                        name: profile.name,
-                        role: profile.role,
-                        specialty: profile.specialty || null,
-                        experienceYears: expYears,
-                    },
-                });
-            }
-        }
-
-        if (!evaluator) {
-            console.error('Evaluator is null after all checks');
-            return NextResponse.json({ error: 'Evaluator could not be determined' }, { status: 500 });
+        if (!evaluator && action === 'login') {
+            console.log('Login failed: User not found');
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
 
         if (action === 'reset_password') {
