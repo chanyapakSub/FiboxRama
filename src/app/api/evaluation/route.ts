@@ -21,28 +21,30 @@ export async function GET() {
                 ev.specialty,
                 ev."experienceYears",
                 COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'id', e.id,
-                            'conversationId', e."conversationId",
-                            'comment', e.comment,
-                            'scores', (
-                                SELECT COALESCE(json_agg(
-                                    json_build_object(
-                                        'id', s.id,
-                                        'indicatorKey', s."indicatorKey",
-                                        'score', s.score
-                                    )
-                                ), '[]'::json)
-                                FROM "Score" s WHERE s."evaluationId" = e.id
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', e.id,
+                                'conversationId', e."conversationId",
+                                'comment', e.comment,
+                                'scores', (
+                                    SELECT COALESCE(json_agg(
+                                        json_build_object(
+                                            'id', s.id,
+                                            'indicatorKey', s."indicatorKey",
+                                            'score', s.score
+                                        )
+                                    ), '[]'::json)
+                                    FROM "Score" s WHERE s."evaluationId" = e.id
+                                )
                             )
                         )
-                    ) FILTER (WHERE e.id IS NOT NULL),
+                        FROM "Evaluation" e 
+                        WHERE e."evaluatorId" = ev.id
+                    ),
                     '[]'::json
                 ) AS evaluations
             FROM "Evaluator" ev
-            LEFT JOIN "Evaluation" e ON e."evaluatorId" = ev.id
-            GROUP BY ev.id
             ORDER BY ev.name
         `;
 
@@ -64,11 +66,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
         }
 
-        // --- Find existing user (1 query, no transaction) ---
-        const [evaluator] = await sql`
+        // --- Find existing user ---
+        const evaluators = await sql`
             SELECT id, username, password, name, role, specialty, "experienceYears"
             FROM "Evaluator" WHERE username = ${username}
         `;
+        const evaluator = evaluators[0];
 
         if (evaluator) {
             // RESET PASSWORD
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
                 if (!newPassword || evaluator.name !== name) {
                     return NextResponse.json({ error: 'Verification failed: Full Name does not match or password missing' }, { status: 403 });
                 }
-                await sql`UPDATE "Evaluator" SET password = ${newPassword} WHERE username = ${username}`;
+                await sql`UPDATE "Evaluator" SET password = ${newPassword}, "updatedAt" = NOW() WHERE username = ${username}`;
                 return NextResponse.json({ success: true, message: 'Password reset successful' });
             }
 
@@ -94,24 +97,26 @@ export async function POST(request: Request) {
                         e."conversationId",
                         e.comment,
                         COALESCE(
-                            json_agg(
-                                json_build_object(
-                                    'id', s.id,
-                                    'indicatorKey', s."indicatorKey",
-                                    'score', s.score
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'id', s.id,
+                                        'indicatorKey', s."indicatorKey",
+                                        'score', s.score
+                                    )
                                 )
-                            ) FILTER (WHERE s.id IS NOT NULL),
+                                FROM "Score" s 
+                                WHERE s."evaluationId" = e.id
+                            ),
                             '[]'::json
                         ) AS scores
                     FROM "Evaluation" e
-                    LEFT JOIN "Score" s ON s."evaluationId" = e.id
-                    WHERE e."evaluatorId" = ${evaluator.id}::uuid
-                    GROUP BY e.id
+                    WHERE e."evaluatorId" = ${evaluator.id}
                 `;
 
                 return NextResponse.json({
                     success: true,
-                    evaluator: { ...evaluator, evaluations: evalRows },
+                    evaluator: { ...evaluator, evaluations: evalRows || [] },
                     message: 'Login successful'
                 });
             }
@@ -131,18 +136,19 @@ export async function POST(request: Request) {
                 ? profile.experienceYears
                 : parseInt(String(profile.experienceYears || '0'), 10) || 0;
 
-            const [newEvaluator] = await sql`
-                INSERT INTO "Evaluator" (id, username, password, name, role, specialty, "experienceYears")
-                VALUES (gen_random_uuid(), ${username || profile.username}, ${password},
-                        ${profile.name}, ${profile.role}, ${profile.specialty || null}, ${expYears})
+            const newId = crypto.randomUUID();
+            const newEvaluators = await sql`
+                INSERT INTO "Evaluator" (id, username, password, name, role, specialty, "experienceYears", "createdAt", "updatedAt")
+                VALUES (${newId}, ${username || profile.username}, ${password},
+                        ${profile.name}, ${profile.role}, ${profile.specialty || null}, ${expYears}, NOW(), NOW())
                 RETURNING id, username, name, role, specialty, "experienceYears"
             `;
+            const newEvaluator = newEvaluators[0];
 
-            // No conversations to save yet on register — return early
-            return NextResponse.json({ success: true, evaluatorId: newEvaluator.id, message: 'Progress saved successfully' });
+            return NextResponse.json({ success: true, evaluatorId: newEvaluator.id, message: 'Registration successful' });
         }
 
-        // --- SAVE PROGRESS (raw SQL, no transactions, minimal round-trips) ---
+        // --- SAVE PROGRESS ---
         if (conversations && Array.isArray(conversations)) {
             const filledConvs = conversations.filter((conv: any) => {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
@@ -151,31 +157,45 @@ export async function POST(request: Request) {
             });
 
             if (filledConvs.length > 0) {
-                // --- Query 1: Upsert ALL evaluations in ONE statement via unnest ---
                 const convIds = filledConvs.map((c: any) => c.conversation_id);
                 const evalComments = filledConvs.map((c: any) => c.comment || null);
+                const nows = filledConvs.map(() => new Date().toISOString());
 
-                const evalResults = await sql`
-                    INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment)
-                    SELECT
-                        gen_random_uuid(),
-                        ${evaluator.id}::uuid,
-                        unnest(${convIds}::int[]),
-                        unnest(${evalComments}::text[])
-                    ON CONFLICT ("evaluatorId", "conversationId")
-                    DO UPDATE SET comment = EXCLUDED.comment
-                    RETURNING id, "conversationId"
-                `;
+                // Use a loop for Evaluation to ensure id generation and updatedAt handling is safe
+                const evalIdMap = new Map<number, string>();
+                
+                for (const conv of filledConvs) {
+                    const existing = await sql`
+                        SELECT id FROM "Evaluation" 
+                        WHERE "evaluatorId" = ${evaluator.id} AND "conversationId" = ${conv.conversation_id}
+                    `;
+                    
+                    let evalId;
+                    if (existing.length > 0) {
+                        evalId = existing[0].id;
+                        await sql`
+                            UPDATE "Evaluation" SET comment = ${conv.comment || null}, "updatedAt" = NOW()
+                            WHERE id = ${evalId}
+                        `;
+                    } else {
+                        evalId = crypto.randomUUID();
+                        await sql`
+                            INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment, "createdAt", "updatedAt")
+                            VALUES (${evalId}, ${evaluator.id}, ${conv.conversation_id}, ${conv.comment || null}, NOW(), NOW())
+                        `;
+                    }
+                    evalIdMap.set(conv.conversation_id, evalId);
+                }
 
-                const evalIdMap = new Map<number, string>(
-                    evalResults.map((r: any) => [r.conversationId, r.id])
-                );
-                const evalIds = [...evalIdMap.values()];
+                const evalIds = Array.from(evalIdMap.values());
 
-                // --- Query 2: Delete old scores for all these evaluations (1 statement) ---
-                await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds}::uuid[])`;
+                // Delete old scores for all affected evaluations
+                if (evalIds.length > 0) {
+                    await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds})`;
+                }
 
-                // --- Query 3: Batch insert ALL new scores (1 statement via unnest) ---
+                // Batch insert all new scores
+                const scoreIds: string[] = [];
                 const scoreEvalIds: string[] = [];
                 const scoreKeys: string[] = [];
                 const scoreValues: number[] = [];
@@ -184,6 +204,7 @@ export async function POST(request: Request) {
                     const evalId = evalIdMap.get(conv.conversation_id);
                     if (evalId && conv.scores) {
                         for (const [key, score] of Object.entries(conv.scores)) {
+                            scoreIds.push(crypto.randomUUID());
                             scoreEvalIds.push(evalId);
                             scoreKeys.push(key);
                             scoreValues.push(Number(score));
@@ -194,11 +215,7 @@ export async function POST(request: Request) {
                 if (scoreEvalIds.length > 0) {
                     await sql`
                         INSERT INTO "Score" (id, "evaluationId", "indicatorKey", score)
-                        SELECT
-                            gen_random_uuid(),
-                            unnest(${scoreEvalIds}::uuid[]),
-                            unnest(${scoreKeys}::text[]),
-                            unnest(${scoreValues}::int[])
+                        SELECT unnest(${scoreIds}), unnest(${scoreEvalIds}), unnest(${scoreKeys}), unnest(${scoreValues})
                     `;
                 }
             }

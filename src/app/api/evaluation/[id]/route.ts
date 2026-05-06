@@ -7,7 +7,7 @@ function getSql() {
     return neon(process.env.DATABASE_URL!);
 }
 
-// DELETE: Delete a specific evaluator (cascade via raw SQL)
+// DELETE: Delete a specific evaluator
 export async function DELETE(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -16,12 +16,10 @@ export async function DELETE(
         const sql = getSql();
         const { id } = await params;
 
-        // Delete scores → evaluations → evaluator in 3 statements, no transactions
-        await sql`DELETE FROM "Score" WHERE "evaluationId" IN (
-            SELECT id FROM "Evaluation" WHERE "evaluatorId" = ${id}::uuid
-        )`;
-        await sql`DELETE FROM "Evaluation" WHERE "evaluatorId" = ${id}::uuid`;
-        await sql`DELETE FROM "Evaluator" WHERE id = ${id}::uuid`;
+        // Cascade delete using raw SQL (Neon HTTP mode)
+        await sql`DELETE FROM "Score" WHERE "evaluationId" IN (SELECT id FROM "Evaluation" WHERE "evaluatorId" = ${id})`;
+        await sql`DELETE FROM "Evaluation" WHERE "evaluatorId" = ${id}`;
+        await sql`DELETE FROM "Evaluator" WHERE id = ${id}`;
 
         return NextResponse.json({ success: true, message: 'Evaluator deleted successfully' });
     } catch (e: any) {
@@ -30,7 +28,7 @@ export async function DELETE(
     }
 }
 
-// PUT: Update evaluator profile + conversations
+// PUT: Update evaluator data
 export async function PUT(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -41,7 +39,7 @@ export async function PUT(
         const data = await request.json();
         const { profile, conversations } = data;
 
-        // --- Update evaluator profile (1 statement) ---
+        // Update evaluator profile
         const expYears = typeof profile.experienceYears === 'number'
             ? profile.experienceYears
             : parseInt(String(profile.experienceYears || '0'), 10) || 0;
@@ -51,11 +49,12 @@ export async function PUT(
             SET name = ${profile.name},
                 role = ${profile.role},
                 specialty = ${profile.specialty || null},
-                "experienceYears" = ${expYears}
-            WHERE id = ${id}::uuid
+                "experienceYears" = ${expYears},
+                "updatedAt" = NOW()
+            WHERE id = ${id}
         `;
 
-        // --- Update conversations using raw SQL batch (no transactions) ---
+        // Update evaluations
         if (conversations && Array.isArray(conversations)) {
             const filledConvs = conversations.filter((conv: any) => {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
@@ -64,31 +63,37 @@ export async function PUT(
             });
 
             if (filledConvs.length > 0) {
-                // --- Query 1: Upsert all evaluations in ONE statement ---
-                const convIds = filledConvs.map((c: any) => c.conversation_id);
-                const evalComments = filledConvs.map((c: any) => c.comment || null);
+                const evalIdMap = new Map<number, string>();
+                
+                for (const conv of filledConvs) {
+                    const existing = await sql`
+                        SELECT id FROM "Evaluation" 
+                        WHERE "evaluatorId" = ${id} AND "conversationId" = ${conv.conversation_id}
+                    `;
+                    
+                    let evalId;
+                    if (existing.length > 0) {
+                        evalId = existing[0].id;
+                        await sql`
+                            UPDATE "Evaluation" SET comment = ${conv.comment || null}, "updatedAt" = NOW()
+                            WHERE id = ${evalId}
+                        `;
+                    } else {
+                        evalId = crypto.randomUUID();
+                        await sql`
+                            INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment, "createdAt", "updatedAt")
+                            VALUES (${evalId}, ${id}, ${conv.conversation_id}, ${conv.comment || null}, NOW(), NOW())
+                        `;
+                    }
+                    evalIdMap.set(conv.conversation_id, evalId);
+                }
 
-                const evalResults = await sql`
-                    INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment)
-                    SELECT
-                        gen_random_uuid(),
-                        ${id}::uuid,
-                        unnest(${convIds}::int[]),
-                        unnest(${evalComments}::text[])
-                    ON CONFLICT ("evaluatorId", "conversationId")
-                    DO UPDATE SET comment = EXCLUDED.comment
-                    RETURNING id, "conversationId"
-                `;
+                const evalIds = Array.from(evalIdMap.values());
+                if (evalIds.length > 0) {
+                    await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds})`;
+                }
 
-                const evalIdMap = new Map<number, string>(
-                    evalResults.map((r: any) => [r.conversationId, r.id])
-                );
-                const evalIds = [...evalIdMap.values()];
-
-                // --- Query 2: Delete old scores (1 statement) ---
-                await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds}::uuid[])`;
-
-                // --- Query 3: Batch insert all new scores (1 statement) ---
+                const scoreIds: string[] = [];
                 const scoreEvalIds: string[] = [];
                 const scoreKeys: string[] = [];
                 const scoreValues: number[] = [];
@@ -97,6 +102,7 @@ export async function PUT(
                     const evalId = evalIdMap.get(conv.conversation_id);
                     if (evalId && conv.scores) {
                         for (const [key, score] of Object.entries(conv.scores)) {
+                            scoreIds.push(crypto.randomUUID());
                             scoreEvalIds.push(evalId);
                             scoreKeys.push(key);
                             scoreValues.push(Number(score));
@@ -107,11 +113,7 @@ export async function PUT(
                 if (scoreEvalIds.length > 0) {
                     await sql`
                         INSERT INTO "Score" (id, "evaluationId", "indicatorKey", score)
-                        SELECT
-                            gen_random_uuid(),
-                            unnest(${scoreEvalIds}::uuid[]),
-                            unnest(${scoreKeys}::text[]),
-                            unnest(${scoreValues}::int[])
+                        SELECT unnest(${scoreIds}), unnest(${scoreEvalIds}), unnest(${scoreKeys}), unnest(${scoreValues})
                     `;
                 }
             }
