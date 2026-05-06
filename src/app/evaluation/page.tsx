@@ -173,7 +173,8 @@ export default function EvaluationPage() {
                     action: 'save',
                     username: username,
                     password: storedPass,
-                    profile,
+                    // Do NOT send profile here — API doesn't need it for saves
+                    // and localStorage profile may contain large evaluations array
                     conversations: filledConversations
                 }),
             });

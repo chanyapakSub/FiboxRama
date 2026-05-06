@@ -92,7 +92,7 @@ export async function POST(request: Request) {
             });
         }
 
-        // 2. SAVE PROGRESS — use upsert + createMany to minimize round-trips
+        // 2. SAVE PROGRESS — no transactions (Neon HTTP mode doesn't support them)
         if (conversations && Array.isArray(conversations)) {
             // Filter only conversations that actually have data
             const filledConvs = conversations.filter((conv: any) => {
@@ -104,32 +104,42 @@ export async function POST(request: Request) {
             for (const conv of filledConvs) {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
 
-                // Upsert evaluation (one round-trip instead of findUnique + create/update)
-                const upsertedEval = await prisma.evaluation.upsert({
+                // findUnique then create/update — no upsert (avoids implicit transaction)
+                const existingEval = await prisma.evaluation.findUnique({
                     where: {
                         evaluatorId_conversationId: {
                             evaluatorId: evaluator.id,
                             conversationId: conv.conversation_id,
                         },
                     },
-                    update: {
-                        comment: conv.comment || null,
-                    },
-                    create: {
-                        evaluatorId: evaluator.id,
-                        conversationId: conv.conversation_id,
-                        comment: conv.comment || null,
-                    },
+                    select: { id: true },
                 });
 
-                if (hasScores) {
-                    // Delete old scores, then batch-insert new ones (2 round-trips instead of N+1)
-                    await prisma.score.deleteMany({
-                        where: { evaluationId: upsertedEval.id },
+                let evalId: string;
+
+                if (existingEval) {
+                    await prisma.evaluation.update({
+                        where: { id: existingEval.id },
+                        data: { comment: conv.comment || null },
                     });
+                    evalId = existingEval.id;
+                } else {
+                    const newEval = await prisma.evaluation.create({
+                        data: {
+                            evaluatorId: evaluator.id,
+                            conversationId: conv.conversation_id,
+                            comment: conv.comment || null,
+                        },
+                    });
+                    evalId = newEval.id;
+                }
+
+                if (hasScores) {
+                    // Delete old scores then batch-insert (2 queries instead of N)
+                    await prisma.score.deleteMany({ where: { evaluationId: evalId } });
                     await prisma.score.createMany({
                         data: Object.entries(conv.scores).map(([key, score]) => ({
-                            evaluationId: upsertedEval.id,
+                            evaluationId: evalId,
                             indicatorKey: key,
                             score: Number(score),
                         })),
