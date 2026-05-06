@@ -40,6 +40,11 @@ export async function POST(request: Request) {
         });
 
         if (evaluator) {
+            // Verify password for any action if evaluator exists
+            if (evaluator.password !== password) {
+                return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+            }
+
             if (action === 'reset_password') {
                 const { name, newPassword } = data;
                 if (!newPassword || evaluator.name !== name) {
@@ -52,17 +57,31 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: true, message: 'Password reset successful' });
             }
 
-            // LOGIN: verify password
+            // LOGIN: return evaluator data
             if (action === 'login') {
-                if (evaluator.password !== password) {
-                    return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
-                }
-                // Fetch with relations separately to avoid nested transaction issues
+                // Fetch with relations separately
                 const fullEvaluator = await prisma.evaluator.findUnique({
                     where: { id: evaluator.id },
                     include: { evaluations: { include: { scores: true } } },
                 });
                 return NextResponse.json({ success: true, evaluator: fullEvaluator, message: 'Login successful' });
+            }
+
+            // For 'save' or other actions, optionally update profile
+            if (profile) {
+                const expYears = typeof profile.experienceYears === 'number'
+                    ? profile.experienceYears
+                    : parseInt(String(profile.experienceYears || '0'), 10) || 0;
+
+                await prisma.evaluator.update({
+                    where: { id: evaluator.id },
+                    data: {
+                        name: profile.name,
+                        role: profile.role,
+                        specialty: profile.specialty || null,
+                        experienceYears: expYears,
+                    },
+                });
             }
         } else {
             // User not found
@@ -133,17 +152,17 @@ export async function POST(request: Request) {
                     evalId = newEval.id;
                 }
 
-                // Create scores one by one (no nested create, no transaction)
+                // Create scores using createMany for efficiency
                 if (hasScores) {
-                    for (const [key, score] of Object.entries(conv.scores)) {
-                        await prisma.score.create({
-                            data: {
-                                evaluationId: evalId,
-                                indicatorKey: key,
-                                score: Number(score),
-                            },
-                        });
-                    }
+                    const scoreData = Object.entries(conv.scores).map(([key, score]) => ({
+                        evaluationId: evalId,
+                        indicatorKey: key,
+                        score: Number(score),
+                    }));
+
+                    await prisma.score.createMany({
+                        data: scoreData,
+                    });
                 }
             }
         }

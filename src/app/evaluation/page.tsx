@@ -28,6 +28,7 @@ export default function EvaluationPage() {
     const [conversations, setConversations] = useState<ConversationScore[]>([]);
     const [hydrated, setHydrated] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveProgress, setSaveProgress] = useState<{ current: number; total: number } | null>(null);
 
     // Initialize
     useEffect(() => {
@@ -151,7 +152,7 @@ export default function EvaluationPage() {
     */
 
     const handleSaveToDB = async (isFinalSubmit = false) => {
-        const storedPass = localStorage.getItem("medical_evaluator_password"); // Assuming we save this on login
+        const storedPass = localStorage.getItem("medical_evaluator_password");
 
         if (!isFinalSubmit) {
             if (!confirm("Save current progress to server? You can resume later.")) return;
@@ -160,31 +161,64 @@ export default function EvaluationPage() {
         }
 
         setIsSaving(true);
+        setSaveProgress(null);
+
         try {
-            const response = await fetch('/api/evaluation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'save',
-                    username: username,
-                    password: storedPass, // Need to ensure Landing Page saves this!
-                    profile,
-                    conversations
-                }),
-            });
+            // Filter conversations that have any data (scores or comments)
+            const itemsToSave = conversations.filter(c => 
+                Object.keys(c.scores).length > 0 || (c.comment && c.comment.trim() !== "")
+            );
 
-            const data = await response.json();
+            if (itemsToSave.length === 0) {
+                alert("No progress to save.");
+                setIsSaving(false);
+                return;
+            }
 
-            if (response.ok) {
+            // Chunking logic: if > 3 items, split into chunks of 2
+            const chunkSize = itemsToSave.length > 3 ? 2 : itemsToSave.length;
+            const chunks = [];
+            for (let i = 0; i < itemsToSave.length; i += chunkSize) {
+                chunks.push(itemsToSave.slice(i, i + chunkSize));
+            }
+
+            let success = true;
+            let errorMsg = "";
+
+            for (let i = 0; i < chunks.length; i++) {
+                setSaveProgress({ current: i + 1, total: chunks.length });
+                
+                const response = await fetch('/api/evaluation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'save',
+                        username: username,
+                        password: storedPass,
+                        profile,
+                        conversations: chunks[i]
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    success = false;
+                    errorMsg = data.error || "Unknown error";
+                    break;
+                }
+            }
+
+            if (success) {
                 alert(isFinalSubmit ? "Final answers submitted successfully!" : "Progress saved successfully!");
             } else {
-                alert(`Failed to save: ${data.error}`);
+                alert(`Failed to save: ${errorMsg}`);
             }
         } catch (error) {
             console.error(error);
             alert("Network error. Try exporting to JSON instead.");
         } finally {
             setIsSaving(false);
+            setSaveProgress(null);
         }
     };
 
@@ -235,7 +269,9 @@ export default function EvaluationPage() {
                         disabled={isSaving}
                         className="px-3 py-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-md transition-colors shadow-sm flex items-center gap-1"
                     >
-                        {isSaving ? "Saving..." : "Save Progress (Draft)"}
+                        {isSaving 
+                            ? (saveProgress ? `Saving (${saveProgress.current}/${saveProgress.total})...` : "Saving...") 
+                            : "Save Progress (Draft)"}
                     </button>
 
                     {/* Submit Button */}
