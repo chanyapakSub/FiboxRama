@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
-import { neon } from '@neondatabase/serverless';
+import { getPrisma } from '@/lib/db';
 
 export const runtime = 'edge';
-
-function getSql() {
-    return neon(process.env.DATABASE_URL!);
-}
 
 // DELETE: Delete a specific evaluator
 export async function DELETE(
@@ -13,13 +9,16 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const sql = getSql();
+        const prisma = getPrisma();
         const { id } = await params;
 
-        // Cascade delete using raw SQL (Neon HTTP mode)
-        await sql`DELETE FROM "Score" WHERE "evaluationId" IN (SELECT id FROM "Evaluation" WHERE "evaluatorId" = ${id})`;
-        await sql`DELETE FROM "Evaluation" WHERE "evaluatorId" = ${id}`;
-        await sql`DELETE FROM "Evaluator" WHERE id = ${id}`;
+        // Delete scores first, then evaluations, then evaluator (cascade-safe for HTTP mode)
+        const evaluations = await prisma.evaluation.findMany({ where: { evaluatorId: id } });
+        for (const ev of evaluations) {
+            await prisma.score.deleteMany({ where: { evaluationId: ev.id } });
+        }
+        await prisma.evaluation.deleteMany({ where: { evaluatorId: id } });
+        await prisma.evaluator.delete({ where: { id } });
 
         return NextResponse.json({ success: true, message: 'Evaluator deleted successfully' });
     } catch (e: any) {
@@ -34,87 +33,69 @@ export async function PUT(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const sql = getSql();
+        const prisma = getPrisma();
         const { id } = await params;
         const data = await request.json();
         const { profile, conversations } = data;
 
         // Update evaluator profile
-        const expYears = typeof profile.experienceYears === 'number'
-            ? profile.experienceYears
-            : parseInt(String(profile.experienceYears || '0'), 10) || 0;
+        await prisma.evaluator.update({
+            where: { id },
+            data: {
+                name: profile.name,
+                role: profile.role,
+                specialty: profile.specialty || null,
+                experienceYears: typeof profile.experienceYears === 'number'
+                    ? profile.experienceYears
+                    : parseInt(String(profile.experienceYears || '0'), 10) || 0,
+            },
+        });
 
-        await sql`
-            UPDATE "Evaluator"
-            SET name = ${profile.name},
-                role = ${profile.role},
-                specialty = ${profile.specialty || null},
-                "experienceYears" = ${expYears},
-                "updatedAt" = NOW()
-            WHERE id = ${id}
-        `;
-
-        // Update evaluations
+        // Update evaluations — split queries, no nested transactions
         if (conversations && Array.isArray(conversations)) {
-            const filledConvs = conversations.filter((conv: any) => {
+            for (const conv of conversations) {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
-                const hasComment = conv.comment && conv.comment.trim().length > 0;
-                return hasScores || hasComment;
-            });
+                if (!hasScores && !conv.comment) continue;
 
-            if (filledConvs.length > 0) {
-                const evalIdMap = new Map<number, string>();
-                
-                for (const conv of filledConvs) {
-                    const existing = await sql`
-                        SELECT id FROM "Evaluation" 
-                        WHERE "evaluatorId" = ${id} AND "conversationId" = ${conv.conversation_id}
-                    `;
-                    
-                    let evalId;
-                    if (existing.length > 0) {
-                        evalId = existing[0].id;
-                        await sql`
-                            UPDATE "Evaluation" SET comment = ${conv.comment || null}, "updatedAt" = NOW()
-                            WHERE id = ${evalId}
-                        `;
-                    } else {
-                        evalId = crypto.randomUUID();
-                        await sql`
-                            INSERT INTO "Evaluation" (id, "evaluatorId", "conversationId", comment, "createdAt", "updatedAt")
-                            VALUES (${evalId}, ${id}, ${conv.conversation_id}, ${conv.comment || null}, NOW(), NOW())
-                        `;
+                const existingEval = await prisma.evaluation.findUnique({
+                    where: {
+                        evaluatorId_conversationId: {
+                            evaluatorId: id,
+                            conversationId: conv.conversation_id,
+                        },
+                    },
+                });
+
+                let evalId: string;
+
+                if (existingEval) {
+                    await prisma.evaluation.update({
+                        where: { id: existingEval.id },
+                        data: { comment: conv.comment },
+                    });
+                    await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
+                    evalId = existingEval.id;
+                } else {
+                    const newEval = await prisma.evaluation.create({
+                        data: {
+                            evaluatorId: id,
+                            conversationId: conv.conversation_id,
+                            comment: conv.comment || null,
+                        },
+                    });
+                    evalId = newEval.id;
+                }
+
+                if (hasScores) {
+                    for (const [key, score] of Object.entries(conv.scores)) {
+                        await prisma.score.create({
+                            data: {
+                                evaluationId: evalId,
+                                indicatorKey: key,
+                                score: Number(score),
+                            },
+                        });
                     }
-                    evalIdMap.set(conv.conversation_id, evalId);
-                }
-
-                const evalIds = Array.from(evalIdMap.values());
-                if (evalIds.length > 0) {
-                    await sql`DELETE FROM "Score" WHERE "evaluationId" = ANY(${evalIds})`;
-                }
-
-                const scoreIds: string[] = [];
-                const scoreEvalIds: string[] = [];
-                const scoreKeys: string[] = [];
-                const scoreValues: number[] = [];
-
-                for (const conv of filledConvs) {
-                    const evalId = evalIdMap.get(conv.conversation_id);
-                    if (evalId && conv.scores) {
-                        for (const [key, score] of Object.entries(conv.scores)) {
-                            scoreIds.push(crypto.randomUUID());
-                            scoreEvalIds.push(evalId);
-                            scoreKeys.push(key);
-                            scoreValues.push(Number(score));
-                        }
-                    }
-                }
-
-                if (scoreEvalIds.length > 0) {
-                    await sql`
-                        INSERT INTO "Score" (id, "evaluationId", "indicatorKey", score)
-                        SELECT unnest(${scoreIds}), unnest(${scoreEvalIds}), unnest(${scoreKeys}), unnest(${scoreValues})
-                    `;
                 }
             }
         }
