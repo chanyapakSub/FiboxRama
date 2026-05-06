@@ -30,7 +30,7 @@ export async function POST(request: Request) {
         const data = await request.json();
         const { action, username, password, profile, conversations } = data;
 
-        if (!username || !password) {
+        if (!username || (!password && action !== 'reset_password')) {
             return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
         }
 
@@ -40,11 +40,23 @@ export async function POST(request: Request) {
         });
 
         if (evaluator) {
-            // LOGIN: verify password
-            if (evaluator.password !== password) {
-                return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+            if (action === 'reset_password') {
+                const { name, newPassword } = data;
+                if (!newPassword || evaluator.name !== name) {
+                    return NextResponse.json({ error: 'Verification failed: Full Name does not match or password missing' }, { status: 403 });
+                }
+                await prisma.evaluator.update({
+                    where: { username },
+                    data: { password: newPassword },
+                });
+                return NextResponse.json({ success: true, message: 'Password reset successful' });
             }
+
+            // LOGIN: verify password
             if (action === 'login') {
+                if (evaluator.password !== password) {
+                    return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+                }
                 // Fetch with relations separately to avoid nested transaction issues
                 const fullEvaluator = await prisma.evaluator.findUnique({
                     where: { id: evaluator.id },
@@ -54,7 +66,7 @@ export async function POST(request: Request) {
             }
         } else {
             // User not found
-            if (action === 'login') {
+            if (action === 'login' || action === 'reset_password') {
                 return NextResponse.json({ error: 'User not found' }, { status: 404 });
             }
 
@@ -80,58 +92,48 @@ export async function POST(request: Request) {
             });
         }
 
-        // 2. SAVE PROGRESS — split into separate queries (no nested transactions)
+        // 2. SAVE PROGRESS — use upsert + createMany to minimize round-trips
         if (conversations && Array.isArray(conversations)) {
-            for (const conv of conversations) {
+            // Filter only conversations that actually have data
+            const filledConvs = conversations.filter((conv: any) => {
                 const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
-                if (!hasScores && !conv.comment) continue;
+                const hasComment = conv.comment && conv.comment.trim().length > 0;
+                return hasScores || hasComment;
+            });
 
-                // Find existing evaluation
-                const existingEval = await prisma.evaluation.findUnique({
+            for (const conv of filledConvs) {
+                const hasScores = conv.scores && Object.keys(conv.scores).length > 0;
+
+                // Upsert evaluation (one round-trip instead of findUnique + create/update)
+                const upsertedEval = await prisma.evaluation.upsert({
                     where: {
                         evaluatorId_conversationId: {
                             evaluatorId: evaluator.id,
                             conversationId: conv.conversation_id,
                         },
                     },
+                    update: {
+                        comment: conv.comment || null,
+                    },
+                    create: {
+                        evaluatorId: evaluator.id,
+                        conversationId: conv.conversation_id,
+                        comment: conv.comment || null,
+                    },
                 });
 
-                let evalId: string;
-
-                if (existingEval) {
-                    // Update comment
-                    await prisma.evaluation.update({
-                        where: { id: existingEval.id },
-                        data: { comment: conv.comment },
-                    });
-                    // Delete old scores first (separate query)
-                    await prisma.score.deleteMany({
-                        where: { evaluationId: existingEval.id },
-                    });
-                    evalId = existingEval.id;
-                } else {
-                    // Create new evaluation
-                    const newEval = await prisma.evaluation.create({
-                        data: {
-                            evaluatorId: evaluator.id,
-                            conversationId: conv.conversation_id,
-                            comment: conv.comment || null,
-                        },
-                    });
-                    evalId = newEval.id;
-                }
-
-                // Create scores one by one (no nested create, no transaction)
                 if (hasScores) {
-                    for (const [key, score] of Object.entries(conv.scores)) {
-                        await prisma.score.create({
-                            data: {
-                                evaluationId: evalId,
-                                indicatorKey: key,
-                                score: Number(score),
-                            },
-                        });
-                    }
+                    // Delete old scores, then batch-insert new ones (2 round-trips instead of N+1)
+                    await prisma.score.deleteMany({
+                        where: { evaluationId: upsertedEval.id },
+                    });
+                    await prisma.score.createMany({
+                        data: Object.entries(conv.scores).map(([key, score]) => ({
+                            evaluationId: upsertedEval.id,
+                            indicatorKey: key,
+                            score: Number(score),
+                        })),
+                    });
                 }
             }
         }

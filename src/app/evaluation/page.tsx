@@ -161,15 +161,20 @@ export default function EvaluationPage() {
 
         setIsSaving(true);
         try {
+            // Only send conversations that actually have data
+            const filledConversations = conversations.filter(c =>
+                Object.keys(c.scores).length > 0 || (c.comment && c.comment.trim().length > 0)
+            );
+
             const response = await fetch('/api/evaluation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     action: 'save',
                     username: username,
-                    password: storedPass, // Need to ensure Landing Page saves this!
+                    password: storedPass,
                     profile,
-                    conversations
+                    conversations: filledConversations
                 }),
             });
 
