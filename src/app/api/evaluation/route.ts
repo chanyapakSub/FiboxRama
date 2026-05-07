@@ -28,18 +28,18 @@ export async function POST(request: Request) {
     try {
         const prisma = getPrisma();
         const data = await request.json();
-        const { action, username, password, profile, conversations } = data;
+        const { action, password, profile, conversations } = data;
+        const username = String(data.username || '').trim().toLowerCase();
 
         if (!username || (!password && action !== 'reset_password')) {
-            console.log('Validation failed: Missing username or password');
             return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
         }
 
         let evaluator = await prisma.evaluator.findUnique({ where: { username } });
 
+        // 1. HANDLE REGISTRATION (via 'save' with profile)
         if (!evaluator) {
             if (action === 'login' || action === 'reset_password') {
-                console.log(`Evaluator not found for username: ${username}`);
                 return NextResponse.json({ error: 'User not found' }, { status: 404 });
             }
 
@@ -50,8 +50,8 @@ export async function POST(request: Request) {
 
                 evaluator = await prisma.evaluator.create({
                     data: {
-                        username: username || profile.username,
-                        password: password,
+                        username,
+                        password,
                         name: profile.name,
                         role: profile.role,
                         specialty: profile.specialty || null,
@@ -59,17 +59,22 @@ export async function POST(request: Request) {
                     },
                 });
             }
+        } else {
+            // Evaluator exists - VERIFY PASSWORD if not reset_password
+            if (action !== 'reset_password' && evaluator.password !== password) {
+                return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+            }
         }
 
         if (!evaluator) {
-            console.error('Evaluator is null after all checks');
             return NextResponse.json({ error: 'Evaluator could not be determined' }, { status: 500 });
         }
 
+        // 2. PASSWORD RESET
         if (action === 'reset_password') {
             const { name, newPassword } = data;
             if (!newPassword || evaluator.name !== name) {
-                return NextResponse.json({ error: 'Verification failed: Full Name does not match or password missing' }, { status: 403 });
+                return NextResponse.json({ error: 'Verification failed: Full Name does not match' }, { status: 403 });
             }
             await prisma.evaluator.update({
                 where: { username },
@@ -78,84 +83,87 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: true, message: 'Password reset successful' });
         }
 
-        // 2. SAVE PROGRESS — split into separate queries (no nested transactions)
+        // 3. SAVE PROGRESS
         if (action === 'save' && conversations && Array.isArray(conversations)) {
-            console.log('Processing save action for conversations:', conversations);
+            console.log(`Processing save for ${username}, ${conversations.length} items`);
 
             for (const conv of conversations) {
-                try {
-                    const { conversation_id, scores, comment } = conv;
-                    const hasScores = scores && Object.keys(scores).length > 0;
+                const { conversation_id, scores, comment } = conv;
+                const hasScores = scores && Object.keys(scores).length > 0;
 
-                    if (!hasScores && !comment) {
-                        console.log(`Skipping conversation ${conversation_id}: No scores or comment`);
-                        continue;
+                if (!hasScores && !comment) continue;
+
+                const existingEval = await prisma.evaluation.findUnique({
+                    where: {
+                        evaluatorId_conversationId: {
+                            evaluatorId: evaluator.id,
+                            conversationId: Number(conversation_id),
+                        },
+                    },
+                });
+
+                if (existingEval) {
+                    if (comment !== undefined) {
+                        await prisma.evaluation.update({
+                            where: { id: existingEval.id },
+                            data: { comment: comment || null },
+                        });
                     }
 
-                    const existingEval = await prisma.evaluation.findUnique({
-                        where: {
-                            evaluatorId_conversationId: {
-                                evaluatorId: evaluator.id,
-                                conversationId: conversation_id,
-                            },
+                    if (hasScores) {
+                        // Delete and recreate scores
+                        await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
+                        for (const [key, score] of Object.entries(scores)) {
+                            await prisma.score.create({
+                                data: {
+                                    evaluationId: existingEval.id,
+                                    indicatorKey: key,
+                                    score: Number(score),
+                                },
+                            });
+                        }
+                    }
+                } else {
+                    const newEval = await prisma.evaluation.create({
+                        data: {
+                            evaluatorId: evaluator.id,
+                            conversationId: Number(conversation_id),
+                            comment: comment || null,
                         },
                     });
 
-                    if (existingEval) {
-                        console.log(`Updating evaluation for conversation ${conversation_id}`);
-                        if (comment) {
-                            await prisma.evaluation.update({
-                                where: { id: existingEval.id },
-                                data: { comment },
+                    if (hasScores) {
+                        for (const [key, score] of Object.entries(scores)) {
+                            await prisma.score.create({
+                                data: {
+                                    evaluationId: newEval.id,
+                                    indicatorKey: key,
+                                    score: Number(score),
+                                },
                             });
                         }
-
-                        if (hasScores) {
-                            console.log(`Updating scores for conversation ${conversation_id}`);
-                            await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
-                            for (const [key, score] of Object.entries(scores)) {
-                                const createdScore = await prisma.score.create({
-                                    data: {
-                                        evaluationId: existingEval.id,
-                                        indicatorKey: key,
-                                        score: Number(score),
-                                    },
-                                });
-                                console.log(`Score created:`, createdScore);
-                            }
-                        }
-                    } else {
-                        console.log(`Creating new evaluation for conversation ${conversation_id}`);
-                        const newEval = await prisma.evaluation.create({
-                            data: {
-                                evaluatorId: evaluator.id,
-                                conversationId: conversation_id,
-                                comment: comment || null,
-                            },
-                        });
-                        console.log(`New evaluation created:`, newEval);
-
-                        if (hasScores) {
-                            console.log(`Adding scores for new evaluation of conversation ${conversation_id}`);
-                            for (const [key, score] of Object.entries(scores)) {
-                                const createdScore = await prisma.score.create({
-                                    data: {
-                                        evaluationId: newEval.id,
-                                        indicatorKey: key,
-                                        score: Number(score),
-                                    },
-                                });
-                                console.log(`Score created:`, createdScore);
-                            }
-                        }
                     }
-                } catch (convError) {
-                    console.error(`Error processing conversation ${conv.conversation_id}:`, convError);
                 }
             }
         }
 
-        return NextResponse.json({ success: true, message: 'Progress saved successfully' });
+        // Fetch the updated evaluator to return consistent data
+        const updatedEvaluator = await prisma.evaluator.findUnique({
+            where: { id: evaluator.id },
+            include: {
+                evaluations: {
+                    include: {
+                        scores: true,
+                    },
+                },
+            },
+        });
+
+        return NextResponse.json({ 
+            success: true, 
+            evaluator: updatedEvaluator,
+            message: 'Progress saved successfully' 
+        });
 
     } catch (e: any) {
         console.error('POST error:', e);

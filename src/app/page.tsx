@@ -42,11 +42,12 @@ export default function LandingPage() {
     setError("");
 
     try {
+      const lowerUsername = username.trim().toLowerCase();
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username,
+          username: lowerUsername,
           password
         }),
       });
@@ -55,21 +56,21 @@ export default function LandingPage() {
 
       if (res.ok) {
         // Save session
-        localStorage.setItem("medical_evaluator_username", username);
+        localStorage.setItem("medical_evaluator_username", lowerUsername);
         localStorage.setItem("medical_evaluator_password", password);
         localStorage.setItem("medical_evaluator_profile", JSON.stringify(data.evaluator));
-        // We might receive 'evaluations' in data.evaluator.evaluations. 
-        // We need to transform this back to the flat structure expected by the app if possible,
-        // or let the evaluation page fetch/format it.
-        // Let's pass the raw data in storage and let EvaluationPage handle it.
-        if (data.evaluator.evaluations) {
-          // Transform DB scores to App scores
+        
+        // Transform and save scores if present
+        if (data.evaluator.evaluations && Array.isArray(data.evaluator.evaluations)) {
+          console.log(`Loading ${data.evaluator.evaluations.length} evaluations from server...`);
           const appScores = data.evaluator.evaluations.map((ev: any) => ({
             conversation_id: ev.conversationId,
-            scores: ev.scores.reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
-            comment: ev.comment
+            scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+            comment: ev.comment || ""
           }));
           localStorage.setItem("medical_evaluation_scores", JSON.stringify(appScores));
+        } else {
+          localStorage.setItem("medical_evaluation_scores", "[]");
         }
 
         router.push("/evaluation");
@@ -78,7 +79,7 @@ export default function LandingPage() {
       }
     } catch (err) {
       console.error(err);
-      setError("An error occurred");
+      setError("An error occurred during login");
     } finally {
       setLoading(false);
     }
@@ -124,34 +125,46 @@ export default function LandingPage() {
     setLoading(true);
     setError("");
 
-    // Just save to local storage and redirect. Actual DB creation happens on first Save/Submit 
-    // OR we can create the user now. Creating now is safer to validation uniqueness.
     try {
+      const lowerUsername = username.trim().toLowerCase();
       const res = await fetch('/api/evaluation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'save', // Implicit register
-          username,
+          action: 'save',
+          username: lowerUsername,
           password,
           profile,
-          conversations: [] // No scores yet
+          conversations: [] // New user
         }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        localStorage.setItem("medical_evaluator_username", username);
+        localStorage.setItem("medical_evaluator_username", lowerUsername);
         localStorage.setItem("medical_evaluator_password", password);
-        localStorage.setItem("medical_evaluator_profile", JSON.stringify({ ...profile, username }));
-        localStorage.removeItem("medical_evaluation_scores"); // Clear any old session
+        localStorage.setItem("medical_evaluator_profile", JSON.stringify(data.evaluator));
+        
+        // Handle evaluations (should be empty for new user but API might return them if user already existed)
+        if (data.evaluator.evaluations && Array.isArray(data.evaluator.evaluations)) {
+          const appScores = data.evaluator.evaluations.map((ev: any) => ({
+            conversation_id: ev.conversationId,
+            scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+            comment: ev.comment || ""
+          }));
+          localStorage.setItem("medical_evaluation_scores", JSON.stringify(appScores));
+        } else {
+          localStorage.setItem("medical_evaluation_scores", "[]");
+        }
+        
         router.push("/evaluation");
       } else {
-        const data = await res.json();
-        setError(data.error || "Registration failed (Username might be taken)");
+        setError(data.error || "Registration failed");
       }
     } catch (err) {
       console.error(err);
-      setError("An error occurred");
+      setError("An error occurred during registration");
     } finally {
       setLoading(false);
     }

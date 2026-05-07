@@ -7,44 +7,42 @@ export async function POST(request: Request) {
     try {
         const prisma = getPrisma();
         const data = await request.json();
-        const { username, password } = data;
+        const username = String(data.username || '').trim().toLowerCase();
+        const { password } = data;
 
         if (!username || !password) {
-            console.log('Validation failed: Missing username or password');
             return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
         }
 
-        const evaluator = await prisma.evaluator.findUnique({ where: { username } });
-
-        if (!evaluator) {
-            console.log(`Login failed: User not found for username: ${username}`);
-            return NextResponse.json({ error: 'User not found' }, { status: 404 });
-        }
-
-        if (evaluator.password !== password) {
-            console.log(`Login failed: Incorrect password for username: ${username}`);
-            return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
-        }
-
-        // Ensure evaluations are included in the response
-        const fullEvaluator = await prisma.evaluator.findUnique({
-            where: { id: evaluator.id },
+        // Find evaluator and include evaluations + scores in a single query for efficiency
+        const evaluator = await prisma.evaluator.findUnique({ 
+            where: { username },
             include: {
                 evaluations: {
                     include: {
                         scores: true,
                     },
                 },
-            },
+            }
         });
 
-        if (fullEvaluator && fullEvaluator.evaluations) {
-            console.log(`Evaluator ${username} has ${fullEvaluator.evaluations.length} evaluations loaded.`);
-        } else {
-            console.log(`Evaluator ${username} has no evaluations.`);
+        if (!evaluator) {
+            console.log(`Login failed: User not found: ${username}`);
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
 
-        return NextResponse.json({ success: true, evaluator: fullEvaluator, message: 'Login successful' });
+        if (evaluator.password !== password) {
+            console.log(`Login failed: Incorrect password for: ${username}`);
+            return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+        }
+
+        console.log(`Login successful for ${username}. Found ${evaluator.evaluations?.length || 0} evaluations.`);
+
+        return NextResponse.json({ 
+            success: true, 
+            evaluator, 
+            message: 'Login successful' 
+        });
     } catch (e: any) {
         console.error('POST /api/login error:', e);
         return NextResponse.json({ error: 'Internal server error', details: e.message }, { status: 500 });

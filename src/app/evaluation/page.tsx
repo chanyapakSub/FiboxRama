@@ -151,7 +151,7 @@ export default function EvaluationPage() {
     */
 
     const handleSaveToDB = async (isFinalSubmit = false) => {
-        const storedPass = localStorage.getItem("medical_evaluator_password"); // Assuming we save this on login
+        const storedPass = localStorage.getItem("medical_evaluator_password");
 
         if (!isFinalSubmit) {
             if (!confirm("Save current progress to server? You can resume later.")) return;
@@ -167,7 +167,7 @@ export default function EvaluationPage() {
                 body: JSON.stringify({
                     action: 'save',
                     username: username,
-                    password: storedPass, // Need to ensure Landing Page saves this!
+                    password: storedPass,
                     profile,
                     conversations
                 }),
@@ -176,6 +176,31 @@ export default function EvaluationPage() {
             const data = await response.json();
 
             if (response.ok) {
+                // Update local storage with the latest data from server
+                if (data.evaluator && data.evaluator.evaluations) {
+                    const appScores = data.evaluator.evaluations.map((ev: any) => ({
+                        conversation_id: ev.conversationId,
+                        scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+                        comment: ev.comment || ""
+                    }));
+                    
+                    // Merge with existing 50 items to keep the structure
+                    const initial = Array.from({ length: 50 }, (_, i) => ({
+                        conversation_id: i + 1,
+                        scores: {},
+                        comment: "",
+                        indicator_comments: {},
+                    }));
+                    
+                    const merged = initial.map(item => {
+                        const found = appScores.find((s: any) => s.conversation_id === item.conversation_id);
+                        return found ? { ...item, ...found } : item;
+                    });
+                    
+                    setConversations(merged);
+                    localStorage.setItem("medical_evaluation_scores", JSON.stringify(merged));
+                }
+                
                 alert(isFinalSubmit ? "Final answers submitted successfully!" : "Progress saved successfully!");
             } else {
                 alert(`Failed to save: ${data.error}`);
