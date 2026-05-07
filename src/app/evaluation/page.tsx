@@ -180,7 +180,7 @@ export default function EvaluationPage() {
                 if (data.evaluator && data.evaluator.evaluations) {
                     const appScores = data.evaluator.evaluations.map((ev: any) => ({
                         conversation_id: ev.conversationId,
-                        scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+                        scores: ev.scores || {},
                         comment: ev.comment || ""
                     }));
                     

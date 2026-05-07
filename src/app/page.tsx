@@ -65,7 +65,7 @@ export default function LandingPage() {
           console.log(`Loading ${data.evaluator.evaluations.length} evaluations from server...`);
           const appScores = data.evaluator.evaluations.map((ev: any) => ({
             conversation_id: ev.conversationId,
-            scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+            scores: ev.scores || {},
             comment: ev.comment || ""
           }));
           localStorage.setItem("medical_evaluation_scores", JSON.stringify(appScores));
@@ -150,7 +150,7 @@ export default function LandingPage() {
         if (data.evaluator.evaluations && Array.isArray(data.evaluator.evaluations)) {
           const appScores = data.evaluator.evaluations.map((ev: any) => ({
             conversation_id: ev.conversationId,
-            scores: (ev.scores || []).reduce((acc: any, s: any) => ({ ...acc, [s.indicatorKey]: s.score }), {}),
+            scores: ev.scores || {},
             comment: ev.comment || ""
           }));
           localStorage.setItem("medical_evaluation_scores", JSON.stringify(appScores));

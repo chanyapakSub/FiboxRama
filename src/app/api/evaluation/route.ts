@@ -9,11 +9,7 @@ export async function GET() {
         const prisma = getPrisma();
         const evaluators = await prisma.evaluator.findMany({
             include: {
-                evaluations: {
-                    include: {
-                        scores: true,
-                    },
-                },
+                evaluations: true,
             },
         });
         return NextResponse.json(evaluators);
@@ -37,7 +33,7 @@ export async function POST(request: Request) {
 
         let evaluator = await prisma.evaluator.findUnique({ where: { username } });
 
-        // 1. HANDLE REGISTRATION (via 'save' with profile)
+        // 1. HANDLE REGISTRATION
         if (!evaluator) {
             if (action === 'login' || action === 'reset_password') {
                 return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -60,7 +56,6 @@ export async function POST(request: Request) {
                 });
             }
         } else {
-            // Evaluator exists - VERIFY PASSWORD if not reset_password
             if (action !== 'reset_password' && evaluator.password !== password) {
                 return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
             }
@@ -83,79 +78,43 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: true, message: 'Password reset successful' });
         }
 
-        // 3. SAVE PROGRESS
+        // 3. SAVE PROGRESS - Much faster with JSON field
         if (action === 'save' && conversations && Array.isArray(conversations)) {
             console.log(`Processing save for ${username}, ${conversations.length} items`);
 
             for (const conv of conversations) {
                 const { conversation_id, scores, comment } = conv;
-                const hasScores = scores && Object.keys(scores).length > 0;
+                const hasData = (scores && Object.keys(scores).length > 0) || comment;
 
-                if (!hasScores && !comment) continue;
+                if (!hasData) continue;
 
-                const existingEval = await prisma.evaluation.findUnique({
+                // Upsert evaluation with JSON scores
+                await prisma.evaluation.upsert({
                     where: {
                         evaluatorId_conversationId: {
                             evaluatorId: evaluator.id,
                             conversationId: Number(conversation_id),
                         },
                     },
+                    update: {
+                        comment: comment || null,
+                        scores: scores || {},
+                    },
+                    create: {
+                        evaluatorId: evaluator.id,
+                        conversationId: Number(conversation_id),
+                        comment: comment || null,
+                        scores: scores || {},
+                    },
                 });
-
-                if (existingEval) {
-                    if (comment !== undefined) {
-                        await prisma.evaluation.update({
-                            where: { id: existingEval.id },
-                            data: { comment: comment || null },
-                        });
-                    }
-
-                    if (hasScores) {
-                        // Delete and recreate scores
-                        await prisma.score.deleteMany({ where: { evaluationId: existingEval.id } });
-                        for (const [key, score] of Object.entries(scores)) {
-                            await prisma.score.create({
-                                data: {
-                                    evaluationId: existingEval.id,
-                                    indicatorKey: key,
-                                    score: Number(score),
-                                },
-                            });
-                        }
-                    }
-                } else {
-                    const newEval = await prisma.evaluation.create({
-                        data: {
-                            evaluatorId: evaluator.id,
-                            conversationId: Number(conversation_id),
-                            comment: comment || null,
-                        },
-                    });
-
-                    if (hasScores) {
-                        for (const [key, score] of Object.entries(scores)) {
-                            await prisma.score.create({
-                                data: {
-                                    evaluationId: newEval.id,
-                                    indicatorKey: key,
-                                    score: Number(score),
-                                },
-                            });
-                        }
-                    }
-                }
             }
         }
 
-        // Fetch the updated evaluator to return consistent data
+        // Fetch the updated evaluator
         const updatedEvaluator = await prisma.evaluator.findUnique({
             where: { id: evaluator.id },
             include: {
-                evaluations: {
-                    include: {
-                        scores: true,
-                    },
-                },
+                evaluations: true,
             },
         });
 

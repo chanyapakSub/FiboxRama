@@ -16,12 +16,7 @@ interface Evaluation {
     id: string;
     conversationId: number;
     comment: string | null;
-    scores: Score[];
-}
-
-interface Score {
-    indicatorKey: string;
-    score: number;
+    scores: Record<string, number>;
 }
 
 const PASSWORD = "Fibo999";
@@ -95,8 +90,8 @@ export default function DashboardPage() {
                     evaluator.experienceYears.toString(),
                     ev.conversationId.toString(),
                     ...indicators.map(ind => {
-                        const score = ev.scores.find(s => s.indicatorKey === ind.key);
-                        return score ? score.score.toString() : '';
+                        const score = ev.scores ? ev.scores[ind.key] : undefined;
+                        return score !== undefined ? score.toString() : '';
                     }),
                     ev.comment || ''
                 ];
@@ -162,12 +157,14 @@ export default function DashboardPage() {
 
         evaluators.forEach(evaluator => {
             evaluator.evaluations.forEach(ev => {
-                ev.scores.forEach(score => {
-                    if (indicatorStats[score.indicatorKey]) {
-                        indicatorStats[score.indicatorKey].total += score.score;
-                        indicatorStats[score.indicatorKey].count += 1;
-                    }
-                });
+                if (ev.scores) {
+                    Object.entries(ev.scores).forEach(([key, score]) => {
+                        if (indicatorStats[key]) {
+                            indicatorStats[key].total += score;
+                            indicatorStats[key].count += 1;
+                        }
+                    });
+                }
             });
         });
 
@@ -340,17 +337,16 @@ export default function DashboardPage() {
                                                                 #{ev.conversationId}
                                                             </td>
                                                             {indicators.map(ind => {
-                                                                const scoreObj = ev.scores.find(s => s.indicatorKey === ind.key);
-                                                                const val = scoreObj ? scoreObj.score : '-';
+                                                                const val = ev.scores ? ev.scores[ind.key] : undefined;
                                                                 let colorClass = "text-slate-300";
-                                                                if (typeof val === 'number') {
+                                                                if (val !== undefined) {
                                                                     if (val >= 4) colorClass = "text-green-600 font-bold";
                                                                     else if (val === 3) colorClass = "text-amber-600 font-medium";
                                                                     else colorClass = "text-red-500 font-bold";
                                                                 }
                                                                 return (
                                                                     <td key={ind.key} className={`py-2 px-2 text-center border-r border-slate-100 ${colorClass}`}>
-                                                                        {val}
+                                                                        {val !== undefined ? val : '-'}
                                                                     </td>
                                                                 );
                                                             })}

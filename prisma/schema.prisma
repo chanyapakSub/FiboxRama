@@ -26,18 +26,8 @@ model Evaluation {
   evaluatorId    String
   conversationId Int
   comment        String?
+  scores         Json      @default("{}")
   evaluator      Evaluator @relation(fields: [evaluatorId], references: [id], onDelete: Cascade)
-  scores         Score[]
 
   @@unique([evaluatorId, conversationId])
-}
-
-model Score {
-  id           String     @id @default(uuid())
-  evaluationId String
-  indicatorKey String
-  score        Int
-  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
-
-  @@unique([evaluationId, indicatorKey])
 }

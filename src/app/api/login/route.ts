@@ -18,11 +18,7 @@ export async function POST(request: Request) {
         const evaluator = await prisma.evaluator.findUnique({ 
             where: { username },
             include: {
-                evaluations: {
-                    include: {
-                        scores: true,
-                    },
-                },
+                evaluations: true,
             }
         });
 
