@@ -76,34 +76,52 @@ export default function DashboardPage() {
     };
 
     const handleExportCSV = () => {
-        // Create CSV content
         const indicators = getAllIndicators();
-        const headers = ['Evaluator', 'Role', 'Experience', 'Conversation ID', ...indicators.map(i => `I${i.id}`), 'Comment'];
+        
+        // Create headers: Profile info + (50 conversations * (21 indicators + 1 comment))
+        const headers = ['Evaluator', 'Role', 'Experience'];
+        for (let i = 1; i <= 50; i++) {
+            indicators.forEach(ind => {
+                headers.push(`C${i}_I${ind.id}`);
+            });
+            headers.push(`C${i}_Comment`);
+        }
 
         const rows: string[][] = [];
         evaluators.forEach(evaluator => {
-            evaluator.evaluations.forEach(ev => {
-                const row = [
-                    evaluator.name,
-                    evaluator.role,
-                    evaluator.experienceYears.toString(),
-                    ev.conversationId.toString(),
-                    ...indicators.map(ind => {
-                        const score = ev.scores ? ev.scores[ind.key] : undefined;
-                        return score !== undefined ? score.toString() : '';
-                    }),
-                    ev.comment || ''
-                ];
-                rows.push(row);
-            });
+            const row = [
+                evaluator.name,
+                evaluator.role,
+                evaluator.experienceYears.toString(),
+            ];
+
+            // Add data for each of the 50 conversations
+            for (let i = 1; i <= 50; i++) {
+                const ev = evaluator.evaluations.find(e => e.conversationId === i);
+                
+                // Add scores for this conversation
+                indicators.forEach(ind => {
+                    const score = ev?.scores ? ev.scores[ind.key] : undefined;
+                    row.push(score !== undefined ? score.toString() : '');
+                });
+                
+                // Add comment for this conversation
+                row.push(ev?.comment || '');
+            }
+            
+            rows.push(row);
         });
 
-        const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const csvContent = [headers, ...rows].map(row => row.map(cell => {
+            const cleanCell = String(cell).replace(/"/g, '""'); // Escape quotes
+            return `"${cleanCell}"`;
+        }).join(',')).join('\n');
+
+        const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8' }); // Add BOM for Excel Thai support
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `evaluation_data_${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = `evaluation_wide_data_${new Date().toISOString().split('T')[0]}.csv`;
         a.click();
     };
 
