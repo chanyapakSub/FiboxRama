@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         const prisma = getPrisma();
         const data = await request.json();
         const { action, password, profile, conversations } = data;
-        const username = String(data.username || '').trim().toLowerCase();
+        const username = String(data.username || '').trim();
 
         if (!username || (!password && action !== 'reset_password')) {
             return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });

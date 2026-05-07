@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     try {
         const prisma = getPrisma();
         const data = await request.json();
-        const username = String(data.username || '').trim().toLowerCase();
+        const username = String(data.username || '').trim();
         const { password } = data;
 
         if (!username || !password) {

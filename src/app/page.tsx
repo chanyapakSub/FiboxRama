@@ -42,12 +42,12 @@ export default function LandingPage() {
     setError("");
 
     try {
-      const lowerUsername = username.trim().toLowerCase();
+      const cleanUsername = username.trim();
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: lowerUsername,
+          username: cleanUsername,
           password
         }),
       });
@@ -56,7 +56,7 @@ export default function LandingPage() {
 
       if (res.ok) {
         // Save session
-        localStorage.setItem("medical_evaluator_username", lowerUsername);
+        localStorage.setItem("medical_evaluator_username", cleanUsername);
         localStorage.setItem("medical_evaluator_password", password);
         localStorage.setItem("medical_evaluator_profile", JSON.stringify(data.evaluator));
         
@@ -126,13 +126,13 @@ export default function LandingPage() {
     setError("");
 
     try {
-      const lowerUsername = username.trim().toLowerCase();
+      const cleanUsername = username.trim();
       const res = await fetch('/api/evaluation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'save',
-          username: lowerUsername,
+          username: cleanUsername,
           password,
           profile,
           conversations: [] // New user
@@ -142,7 +142,7 @@ export default function LandingPage() {
       const data = await res.json();
 
       if (res.ok) {
-        localStorage.setItem("medical_evaluator_username", lowerUsername);
+        localStorage.setItem("medical_evaluator_username", cleanUsername);
         localStorage.setItem("medical_evaluator_password", password);
         localStorage.setItem("medical_evaluator_profile", JSON.stringify(data.evaluator));
         
