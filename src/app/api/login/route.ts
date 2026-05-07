@@ -39,8 +39,9 @@ export async function POST(request: Request) {
             evaluator, 
             message: 'Login successful' 
         });
-    } catch (e: any) {
-        console.error('POST /api/login error:', e);
-        return NextResponse.json({ error: 'Internal server error', details: e.message }, { status: 500 });
+    } catch (e: unknown) {
+        const error = e as Error;
+        console.error('POST /api/login error:', error);
+        return NextResponse.json({ error: 'Internal server error', details: error.message }, { status: 500 });
     }
 }

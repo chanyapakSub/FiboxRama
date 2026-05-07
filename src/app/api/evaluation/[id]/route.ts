@@ -17,9 +17,10 @@ export async function DELETE(
         await prisma.evaluator.delete({ where: { id } });
 
         return NextResponse.json({ success: true, message: 'Evaluator deleted successfully' });
-    } catch (e: any) {
-        console.error('DELETE error:', e?.message);
-        return NextResponse.json({ error: 'Failed to delete evaluator', details: e?.message }, { status: 500 });
+    } catch (e: unknown) {
+        const error = e as Error;
+        console.error('DELETE error:', error.message);
+        return NextResponse.json({ error: 'Failed to delete evaluator', details: error.message }, { status: 500 });
     }
 }
 
@@ -77,8 +78,9 @@ export async function PUT(
         }
 
         return NextResponse.json({ success: true, message: 'Evaluator updated successfully' });
-    } catch (e: any) {
-        console.error('PUT error:', e?.message);
-        return NextResponse.json({ error: 'Failed to update evaluator', details: e?.message }, { status: 500 });
+    } catch (e: unknown) {
+        const error = e as Error;
+        console.error('PUT error:', error.message);
+        return NextResponse.json({ error: 'Failed to update evaluator', details: error.message }, { status: 500 });
     }
 }

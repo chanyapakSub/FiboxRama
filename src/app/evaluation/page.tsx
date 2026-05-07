@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { EVALUATION_CRITERIA, Category, Indicator } from "../../lib/criteria";
+import { EVALUATION_CRITERIA } from "../../lib/criteria";
 import { CONVERSATIONS } from "../../lib/conversations";
 
 interface ConversationScore {
@@ -58,7 +58,7 @@ export default function EvaluationPage() {
             const savedData = JSON.parse(saved);
             // Merge saved data into initial 50 items
             const merged = initial.map(item => {
-                const found = savedData.find((s: any) => s.conversation_id === item.conversation_id);
+                const found = savedData.find((s: ConversationScore) => s.conversation_id === item.conversation_id);
                 return found ? { ...item, ...found } : item;
             });
             setConversations(merged);
@@ -112,7 +112,8 @@ export default function EvaluationPage() {
         downloadAnchorNode.remove();
     };
 
-    const handleSaveProgress = async (silent = false) => {
+    /*
+    const handleSaveProgress = async () => {
         if (!username) return;
         setIsSaving(true);
         try {
@@ -178,7 +179,7 @@ export default function EvaluationPage() {
             if (response.ok) {
                 // Update local storage with the latest data from server
                 if (data.evaluator && data.evaluator.evaluations) {
-                    const appScores = data.evaluator.evaluations.map((ev: any) => ({
+                    const appScores = data.evaluator.evaluations.map((ev: { conversationId: number, scores: Record<string, number>, comment: string | null }) => ({
                         conversation_id: ev.conversationId,
                         scores: ev.scores || {},
                         comment: ev.comment || ""
@@ -193,7 +194,7 @@ export default function EvaluationPage() {
                     }));
                     
                     const merged = initial.map(item => {
-                        const found = appScores.find((s: any) => s.conversation_id === item.conversation_id);
+                        const found = appScores.find((s: ConversationScore) => s.conversation_id === item.conversation_id);
                         return found ? { ...item, ...found } : item;
                     });
                     

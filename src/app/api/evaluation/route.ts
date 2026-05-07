@@ -13,9 +13,10 @@ export async function GET() {
             },
         });
         return NextResponse.json(evaluators);
-    } catch (e: any) {
-        console.error('GET error:', e?.message);
-        return NextResponse.json({ error: 'Failed to fetch data', details: e?.message }, { status: 500 });
+    } catch (e: unknown) {
+        const error = e as Error;
+        console.error('GET error:', error.message);
+        return NextResponse.json({ error: 'Failed to fetch data', details: error.message }, { status: 500 });
     }
 }
 
@@ -124,8 +125,9 @@ export async function POST(request: Request) {
             message: 'Progress saved successfully' 
         });
 
-    } catch (e: any) {
-        console.error('POST error:', e);
-        return NextResponse.json({ error: 'Internal server error', details: e.message }, { status: 500 });
+    } catch (e: unknown) {
+        const error = e as Error;
+        console.error('POST error:', error);
+        return NextResponse.json({ error: 'Internal server error', details: error.message }, { status: 500 });
     }
 }

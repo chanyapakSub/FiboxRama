@@ -63,7 +63,7 @@ export default function LandingPage() {
         // Transform and save scores if present
         if (data.evaluator.evaluations && Array.isArray(data.evaluator.evaluations)) {
           console.log(`Loading ${data.evaluator.evaluations.length} evaluations from server...`);
-          const appScores = data.evaluator.evaluations.map((ev: any) => ({
+          const appScores = data.evaluator.evaluations.map((ev: { conversationId: number, scores: Record<string, number>, comment: string | null }) => ({
             conversation_id: ev.conversationId,
             scores: ev.scores || {},
             comment: ev.comment || ""
@@ -148,7 +148,7 @@ export default function LandingPage() {
         
         // Handle evaluations (should be empty for new user but API might return them if user already existed)
         if (data.evaluator.evaluations && Array.isArray(data.evaluator.evaluations)) {
-          const appScores = data.evaluator.evaluations.map((ev: any) => ({
+          const appScores = data.evaluator.evaluations.map((ev: { conversationId: number, scores: Record<string, number>, comment: string | null }) => ({
             conversation_id: ev.conversationId,
             scores: ev.scores || {},
             comment: ev.comment || ""

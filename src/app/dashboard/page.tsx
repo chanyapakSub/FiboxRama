@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { EVALUATION_CRITERIA } from '../../lib/criteria';
 
 interface Evaluator {
@@ -28,7 +28,6 @@ export default function DashboardPage() {
     const [evaluators, setEvaluators] = useState<Evaluator[]>([]);
     const [expandedEvaluator, setExpandedEvaluator] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<"table" | "analytics">("table");
-    const [editingEvaluator, setEditingEvaluator] = useState<Evaluator | null>(null);
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
